@@ -233,11 +233,11 @@ sub maybe_expand_references($$$$)
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
     if ($ref =~ /^#/
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      $response .= "-> $issue $repository/issues/$issue\n";
+      $response .= "-> #$issue $repository/issues/$issue\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
     } elsif ($ref =~ /^@/
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
-      $response .= "-> $name https://github.com/$name\n";
+      $response .= "-> @$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
     }
   }
@@ -495,7 +495,7 @@ somebody mentions a short reference to a GitHub issue or pull request
 Example:
 
  <joe> Let's talk about #13.
- <ghurlbot> -> 13 https://github.com/xxx/yyy/issues/13
+ <ghurlbot> -> #13 https://github.com/xxx/yyy/issues/13
 
 The online L<manual|https://w3c.github.io/ghurlbot/manual.html>
 explains in detail how to interact with B<ghurlbot> on IRC. The
