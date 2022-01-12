@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang=en-us>
+  <meta charset=utf-8>
+  <meta name="viewport" content="width=device-width">
+  <title>GHURLBot manual</title>
+  <link rel=stylesheet type="text/css"
+	href="https://www.w3.org/Guide/guide2006.css">
+  <link rel="shortcut icon"
+	href="https://www.w3.org/Icons/WWW/Literature.gif">
+
+
+  <h1>GHURLBot manual</h1>
+
+  <p>GHURLBot is an IRC bot that gives the full URLs for GitHub issues
+    and users. It typically has the nick name ‘ghurlbot’ on IRC.</p>
+
+  <h2>IRC commands</h2>
+
+  <p>When somebody types <code>#</code> plus a number, GHURLBot
+    responds with the full URL to the issue or pull request with that
+    number. E.g.:</p>
+
+  <pre class=command>&lt;joe&gt; Let's talk about #13.
+&lt;ghurlbot&gt; -> 13 https://github.com/xxx/yyy/issues/13</pre>
+
+  <p>(The <code>-&gt;</code> is understood
+    by <a href="https://w3c.github.io/scribe2/scribedoc.html"
+    >scribe.perl</a> and causes the URL to be formatted as a link when
+    scribe.perl generates HTML from the IRC log.)</p>
+
+  <p>When somebody types <code>@</code> plus a name, it responds with
+    the full URL to that person or team. E.g.:</p>
+
+  <pre class=command>&lt;joe&gt; That comment came from @aliciag
+&lt;ghurlbot&gt; -&gt; aliciag https://github.com/aliciag</pre>
+
+  <p>GHURLBot only expands a reference that is on in its own, not
+    one that seems to be attached to something else, such as a URL
+    (e.g., ‘example.com/slides#13’). If GHURLBot does not seems
+    to recognize a reference, try to put spaces around it.</p>
+
+  <h3>Specifying the GitHub repository</h3>
+
+  <p>To be able to expand issues and pull requests, the bot first
+    needs to know the repository that is being discussed:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, discussing https://github.com/xxx/yyy</pre>
+
+  <p>Instead of <code>discussing</code>, you can also
+    use <code>discuss</code>, <code>use</code>, <code>using</code>, <code>take
+    up</code>, <code>taking up</code>, <code>this will be</code>
+    or <code>this is</code>.</p>
+
+  <p>The prefix ‘https://github.com/’ is assumed, so you can also say:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, discussing xxx/yyy</pre>
+
+  <p>And if you switch to a different repository with the same owner,
+    you can also omit the owner:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, discussing yyy</pre>
+
+  <p>GHURLBot remembers the last repository even when it is
+    dismissed from a channel. When it is later asked to rejoin, it
+    continues using the last repository.</p>
+
+  <h3>Suspending the expansion of references</h3>
+
+  <p>You can turn the bot off temporarily without dismissing it from
+    the channel and turn it back on again:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, off
+&lt;joe&gt; ghurlbot, on</pre>
+
+  <p>You can ask the bot to stop expanding just persons and teams:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, set names to off
+&lt;joe&gt; ghurlbot, names off
+&lt;joe&gt; ghurlbot, names = off</pre>
+
+  <p>Instead of <code>off</code>, you can also use <code>no</code>
+    or <code>false</code>. And instead of <code>names</code> you can
+    also use <code>persons</code> or <code>teams</code>.</p>
+
+  <p>To ask it to stop expanding references to issues and pull requests,
+    the command is:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, set issues to off
+&lt;joe&gt; ghurlbot, issues off
+&lt;joe&gt; ghurlbot, issues = off</pre>
+
+  <p>To turn the expansion of references back on,
+    replace <code>off</code> by <code>on</code>, <code>yes</code>
+    or <code>true</code>.</p>
+
+  <p>When you address GHURLBot directly, it will respond even if
+    expansion of references is suspended:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, #13 and #14?
+&lt;ghurlbot&gt; -&gt; 13 https://github.com/xxx/yyy/issues/13
+&lt;ghurlbot&gt; -&gt; 14 https://github.com/xxx/yyy/issues/14</pre>
+  <h3>Inviting and dismissing the bot</h3>
+
+  <p>You can invite the bot to a channel and dismiss it:</p>
+
+  <pre class=command>&lt;joe&gt; /invite GHURLBot
+&lt;joe&gt; ghurlbot, bye</pre>
+
+  <h3>Reducing the number of responses from the bot</h3>
+
+  <p>To avoid flooding the IRC conversation with links, the bot will
+    not expand a reference if it has already expanded the same
+    reference recently. By default, it waits until 15 lines have been
+    typed into the IRC channel before expanding the same reference
+    again, but that can be configured. All of the following set the
+    delay to 20 lines:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, set delay to 20
+&lt;joe&gt; ghurlbot, delay 20
+&lt;joe&gt; ghurlbot, delay = 20</pre>
+
+  <p>The delay only stops the bot from reacting to normal messages in
+    the channel. When you address GHURLBot directly, it will
+    respond even if it gave the same URL recently.</p>
+
+  <h3>Inquiring about the current status</h3>
+
+  <p>You can ask what repository it is currently using:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, status?
+&lt;ghurlbot&gt; Delay is 15 lines, issues are on, names are on and I'm using https://github.com/xxx/yyy</pre>
+
+  <h3>Getting help</h3>
+
+  <p>The bot also reacts to <code>help</code> with some information
+    about itself and a link to this manual.</p>
+
+  <hr>
+
+  <address>Created by Bert Bos <a href="mailto:bert@w3.org"
+    >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
+    $Date$ by $Author$</address>
