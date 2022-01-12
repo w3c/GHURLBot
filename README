@@ -1,0 +1,15 @@
+GHURLBot is an IRC bot that provides full URLs when GitGub issues
+(‘#123’) or users (‘@yyyy’) are mentioned in IRC. E.g.:
+
+   <joe> Let's discuss issue #13.
+   <ghurlbot> -> #13 https://github.com/xxx/yyy/issues/13
+
+Instructions for running the bot are included in the ghurlbot.pl file.
+Download the file and run perldoc to see the manual page. (Requires
+perl.) E.g.:
+
+   perldoc -oman ghurlbot.pl
+
+The interaction with the bot in IRC is documented in manual.html:
+
+   https://w3c.github.io/GHURLBot/manual.html
