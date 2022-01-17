@@ -34,7 +34,7 @@ use Getopt::Std;
 use Scalar::Util 'blessed';
 use Term::ReadKey;		# To read a password without echoing
 
-use constant MANUAL => 'https://w3c.github.io/ghurlbot/manual.html';
+use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
 use constant DEFAULT_DELAY => 15;
 
