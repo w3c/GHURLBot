@@ -7,11 +7,6 @@
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
-# TODO: Instead of rewriting the map-file and rejoin-file, write to a
-# temporary file and rename it. This will avoid that the file becomes
-# corrupted when the program is killed in the midst of writing to the
-# file.
-#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -33,10 +28,17 @@ use warnings;
 use Getopt::Std;
 use Scalar::Util 'blessed';
 use Term::ReadKey;		# To read a password without echoing
+use open qw(:std :encoding(UTF-8)); # Undeclared streams in UTF-8
+use File::Temp qw(tempfile tempdir);
+use File::Copy;
+use LWP;
+use LWP::ConnCache;
+use JSON;
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
 use constant DEFAULT_DELAY => 15;
+use constant GITHUB_ENDPOINT => 'https://api.github.com/graphql';
 
 
 # init -- initialize some parameters
@@ -53,8 +55,20 @@ sub init($)
   $self->{suspend_names} = {}; # Set of channels currently not expanding names
   $self->{repos} = {}; # Maps channels to their repository
 
+  # Create a user agent to retrieve data from GitHub, if needed.
+  if ($self->{github_api_token}) {
+    $self->{ua} = LWP::UserAgent->new;
+    $self->{ua}->agent(blessed($self) . '/' . VERSION);
+    $self->{ua}->timeout(10);
+    $self->{ua}->conn_cache(LWP::ConnCache->new);
+    $self->{ua}->env_proxy;
+    $self->{ua}->default_header(
+      'Authorization' => 'bearer ' . $self->{github_api_token});
+  }
+
   $errmsg = $self->read_rejoin_list() and die "$errmsg\n";
   $errmsg = $self->read_mapfile() and die "$errmsg\n";
+
   return 1;
 }
 
@@ -112,6 +126,22 @@ sub read_mapfile($)
 }
 
 
+# rewrite_rejoinfile -- replace the rejoinfile with an updated one
+sub rewrite_rejoinfile($)
+{
+  my ($self) = @_;
+
+  # assert: defined $self->{rejoinfile}
+  eval {
+    my ($temp, $tempname) = tempfile('/tmp/check-XXXXXX');
+    print $temp "$_\n" foreach keys %{$self->{joined_channels}};
+    close $temp;
+    move($tempname, $self->{rejoinfile});
+  };
+  $self->log($@) if $@;
+}
+
+
 # write_mapfile -- write the current status to file
 sub write_mapfile($)
 {
@@ -144,37 +174,50 @@ sub part_channel($$)
 
     # If we keep a rejoin file, remove the channel from it.
     if ($self->{rejoinfile}) {
-      if (open(my $fh, ">", $self->{rejoinfile})) {
-	print $fh "$_\n" foreach keys %{$self->{joined_channels}};
-      } else {
-	$self-log("Cannot write $self->{rejoinfile}: $!");
+      $self->rewrite_rejoinfile();
+    }
+  }
+}
+
+
+# chanjoin -- called when somebody joins a channel
+sub chanjoin($$)
+{
+  my ($self, $mess) = @_;
+  my $who = $mess->{who};
+  my $channel = $mess->{channel};
+
+  if ($who eq $self->nick()) {	# It's us
+    $self->log("Joined $channel");
+
+    # Initialize data structures with information about this channel.
+    if (!defined $self->{joined_channels}->{$channel}) {
+      $self->{joined_channels}->{$channel} = 1;
+      $self->{linenumber}->{$channel} = 0;
+      $self->{history}->{$channel} = {};
+
+      # If we keep a rejoin file, add the channel to it.
+      if ($self->{rejoinfile}) {
+	$self->rewrite_rejoinfile();
+	# if (open(my $fh, ">>", $self->{rejoinfile})) {print $fh "$channel\n"}
+	# else {$self->log("Cannot write $self->{rejoinfile}: $!")}
       }
     }
   }
+  return;
 }
 
 
-# join_channel -- join a channel, the channel name is given as argument
-sub join_channel
-{
-  my ($self, $channel, $key) = @_;
+# # join_channel -- join a channel, the channel name is given as argument
+# sub join_channel
+# {
+#   my ($self, $channel, $key) = @_;
 
-  # Use inherited method to join the channel.
-  $self->SUPER::join_channel($channel, $key);
+#   $self->log("Joining $channel");
 
-  # Initialize data structures with information about this channel.
-  if (!defined $self->{joined_channels}->{$channel}) {
-    $self->{joined_channels}->{$channel} = 1;
-    $self->{linenumber}->{$channel} = 0;
-    $self->{history}->{$channel} = {};
-
-    # If we keep a rejoin file, add the channel to it.
-    if ($self->{rejoinfile}) {
-      if (open(my $fh, ">>", $self->{rejoinfile})) {print $fh "$channel\n"}
-      else {$self->log("Cannot write $self->{rejoinfile}: $!")}
-    }
-  }
-}
+#   # Use inherited method to join the channel.
+#   $self->SUPER::join_channel($channel, $key);
+# }
 
 
 # set_repository -- remember the repository $2 for channel $1
@@ -199,6 +242,7 @@ sub set_repository($$)
   if (($self->{repos}->{$channel} // '') ne $repository) {
     $self->{repos}->{$channel} = $repository;
     $self->write_mapfile();
+    $self->{history}->{$channel} = {}; # Forget recently expanded issues
   }
 
   return "OK. But note that I'm currently off. " .
@@ -212,6 +256,65 @@ sub set_repository($$)
       "To also expand names, please use: ".$self->nick().", set names to on"
       if defined $self->{suspend_names}->{$channel};
   return 'OK';
+}
+
+
+# get_issue_summary -- try to retrieve info about an issue or pull request
+sub get_issue_summary($$$)
+{
+  my ($self, $repository, $issue) = @_;
+  my ($owner, $repo, $res, $query, $json, $ref, $s);
+
+  return undef if !$self->{ua};
+
+  ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
+
+  # Make a GraphQL query and embed it in a bit of JSON.
+  $query = "query {
+      repository(owner: \"$owner\", name: \"$repo\") {
+	issueOrPullRequest(number: $issue) {
+	  __typename
+	  ... on Issue {
+	    title
+	    author { login }
+	    closed
+	    labels(first: 100) {
+	      edges { node { name } }
+	    }
+	  }
+	  ... on PullRequest {
+	    title
+	    author { login }
+	    closed
+	    labels(first: 100) {
+	      edges { node { name } }
+	    }
+	  }
+	}
+      }
+    }";
+  $json = encode_json({"query" => $query});
+
+  # $self->log($query);
+
+  $res = $self->{ua}->post(GITHUB_ENDPOINT, Content => $json);
+
+  if ($res->code != 200) {
+    $self->log("Code ".$res->code." when querying GitHub:\n".
+	       $res->decoded_content);
+    return undef;
+  }
+
+  $ref = decode_json($res->decoded_content);
+  $ref = $ref->{'data'}->{'repository'}->{'issueOrPullRequest'};
+  return "Issue $issue [not found]" if !defined $ref->{'__typename'};
+
+  $s = $ref->{'__typename'} . " $issue ";
+  $s .= '[closed] ' if $ref->{'closed'};
+  $s .= $ref->{'title'};
+  $s .= ' (' . $ref->{'author'}->{'login'} . ')';
+  $s .= ', ' . $_->{'node'}->{'name'} foreach @{$ref->{'labels'}->{'edges'}};
+  return $s;
 }
 
 
@@ -233,7 +336,9 @@ sub maybe_expand_references($$$$)
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
     if ($ref =~ /^#/
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      $response .= "-> #$issue $repository/issues/$issue\n";
+      $response .= '-> ';
+      $response .= $self->get_issue_summary($repository, $issue) // "#$issue";
+      $response .= " $repository/issues/$issue\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
     } elsif ($ref =~ /^@/
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
@@ -434,7 +539,7 @@ sub nickname_in_use_error($$)
 my (%opts, $ssl, $proto, $user, $password, $host, $port, %passwords, $channel);
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
-getopts('m:n:N:r:v', \%opts) or die "Try --help\n";
+getopts('m:n:N:r:t:v', \%opts) or die "Try --help\n";
 die "Usage: $0 [options] [--help] irc[s]://server...\n" if $#ARGV != 0;
 
 # The single argument must be an IRC-URL.
@@ -470,6 +575,7 @@ my $bot = GHURLBot->new(
   channels => (defined $channel ? [$channel] : []),
   rejoinfile => $opts{'r'},
   mapfile => $opts{'m'} // 'ghurlbot.map',
+  github_api_token => $opts{'t'},
   verbose => defined $opts{'v'});
 
 $bot->run();
@@ -485,7 +591,7 @@ ghurlbot - IRC bot that gives the URLs for GitHub issues & users
 =head1 SYNOPSIS
 
 ghurlbot [-n I<nick>] [-N I<name>] [-m I<map-file>]
-[-r I<rejoin-file>] [-v] I<URL>
+[-r I<rejoin-file>] [-t I<github-api-token>] [-v] I<URL>
 
 =head1 DESCRIPTION
 
@@ -496,6 +602,10 @@ Example:
 
  <joe> Let's talk about #13.
  <ghurlbot> -> #13 https://github.com/xxx/yyy/issues/13
+
+B<ghurlbot> can also retrieve a summary of the issue from GitHub, if
+it has been given a token (a kind of password) that gives access to
+GitHub's API. See the B<-t> option.
 
 The online L<manual|https://w3c.github.io/ghurlbot/manual.html>
 explains in detail how to interact with B<ghurlbot> on IRC. The
@@ -564,6 +674,15 @@ rejoin them when it is restarted. By default it does not remember the
 channels, but when the B<-r> option is given, it reads a list of
 channels from I<rejoin-file> when it starts and tries to join them,
 and it updates that file whenever it joins or leaves a channel.
+
+=item B<-t> I<github-api-token>
+
+With this option, B<ghurlbot> will not only print a link to each issue
+or pull request, but will also try to print a summary of the issue or
+pull request. For that it needs to query GitHub. It does that by
+sending HTTP requests to GitHub's GraphQL server, which requires an
+access token provided by GitHub. See L<Creating a personal access
+token|https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token>.
 
 =item B<-v>
 
