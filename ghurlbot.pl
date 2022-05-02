@@ -33,7 +33,7 @@ use File::Temp qw(tempfile tempdir);
 use File::Copy;
 use LWP;
 use LWP::ConnCache;
-use JSON;
+use JSON::PP;
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
