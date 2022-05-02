@@ -28,6 +28,12 @@
     >scribe.perl</a> and causes the URL to be formatted as a link when
     scribe.perl generates HTML from the IRC log.)</p>
 
+  <p>GHURLBot also tries to look up the issue on GitHub. If it
+    succeeds, it not unly shows a URL, but also a summary, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; Next topic: #15
+&lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
+
   <p>When somebody types <code>@</code> plus a name, it responds with
     the full URL to that person or team. E.g.:</p>
 
@@ -145,4 +151,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Mon Jan 17 19:22:45 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Mon May  2 21:21:18 2022 UTC $ by $Author: Bert Bos $</address>
