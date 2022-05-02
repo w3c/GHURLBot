@@ -7,11 +7,6 @@
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
-# TODO: Instead of rewriting the map-file and rejoin-file, write to a
-# temporary file and rename it. This will avoid that the file becomes
-# corrupted when the program is killed in the midst of writing to the
-# file.
-#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -247,6 +242,7 @@ sub set_repository($$)
   if (($self->{repos}->{$channel} // '') ne $repository) {
     $self->{repos}->{$channel} = $repository;
     $self->write_mapfile();
+    $self->{history}->{$channel} = {}; # Forget recently expanded issues
   }
 
   return "OK. But note that I'm currently off. " .
