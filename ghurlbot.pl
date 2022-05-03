@@ -38,7 +38,6 @@ use JSON::PP;
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
 use constant DEFAULT_DELAY => 15;
-use constant GITHUB_ENDPOINT => 'https://api.github.com/graphql';
 
 
 # init -- initialize some parameters
@@ -263,57 +262,29 @@ sub set_repository($$)
 sub get_issue_summary($$$)
 {
   my ($self, $repository, $issue) = @_;
-  my ($owner, $repo, $res, $query, $json, $ref, $s);
+  my ($owner, $repo, $res, $ref, $s);
 
   return undef if !$self->{ua};
 
   ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
 
-  # Make a GraphQL query and embed it in a bit of JSON.
-  $query = "query {
-      repository(owner: \"$owner\", name: \"$repo\") {
-	issueOrPullRequest(number: $issue) {
-	  __typename
-	  ... on Issue {
-	    title
-	    author { login }
-	    closed
-	    labels(first: 100) {
-	      edges { node { name } }
-	    }
-	  }
-	  ... on PullRequest {
-	    title
-	    author { login }
-	    closed
-	    labels(first: 100) {
-	      edges { node { name } }
-	    }
-	  }
-	}
-      }
-    }";
-  $json = encode_json({"query" => $query});
-
-  # $self->log($query);
-
-  $res = $self->{ua}->post(GITHUB_ENDPOINT, Content => $json);
-
-  if ($res->code != 200) {
-    $self->log("Code ".$res->code." when querying GitHub:\n".
-	       $res->decoded_content);
+  $res = $self->{ua}->get(
+    "https://api.github.com/repos/$owner/$repo/issues/$issue",
+    'Accept' => 'application/vnd.github.v3+json');
+  if ($res->code == 404) {
+    return "Issue $issue [not found]";
+  } elsif ($res->code == 410) {
+    return "Issue $issue [gone]";
+  } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
+    $self->log("Code ".$res->code."\n".$res->decoded_content);
     return undef;
   }
 
   $ref = decode_json($res->decoded_content);
-  $ref = $ref->{'data'}->{'repository'}->{'issueOrPullRequest'};
-  return "Issue $issue [not found]" if !defined $ref->{'__typename'};
-
-  $s = $ref->{'__typename'} . " $issue ";
-  $s .= '[closed] ' if $ref->{'closed'};
-  $s .= $ref->{'title'};
-  $s .= ' (' . $ref->{'author'}->{'login'} . ')';
-  $s .= ', ' . $_->{'node'}->{'name'} foreach @{$ref->{'labels'}->{'edges'}};
+  $s = ($ref->{'pull_request'} ? 'Pull Request' : 'Issue') . " $issue ";
+  $s .= $ref->{'state'} eq 'closed' ? '[closed] ' : '';
+  $s .= $ref->{'title'} . ' (' . $ref->{'user'}->{'login'} . ')';
+  $s .= ', ' . $_->{'name'} foreach @{$ref->{'labels'}};
   return $s;
 }
 
@@ -336,14 +307,18 @@ sub maybe_expand_references($$$$)
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
     if ($ref =~ /^#/
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
+      $self->log("Channel $channel, $repository/issues/$issue");
       $response .= '-> ';
       $response .= $self->get_issue_summary($repository, $issue) // "#$issue";
       $response .= " $repository/issues/$issue\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
     } elsif ($ref =~ /^@/
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
+      $self->log("channel $channel, https://github.com/$name");
       $response .= "-> @$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
+    } else {
+      $self->log("Channel $channel, skipping $ref");
     }
   }
   return $response;
