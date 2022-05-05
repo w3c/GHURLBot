@@ -382,7 +382,7 @@ sub maybe_expand_references($$$$)
     } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
       $self->log("channel $channel, https://github.com/$name");
-      $response .= "-> @$name https://github.com/$name\n";
+      $response .= "-> \@$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } else {
