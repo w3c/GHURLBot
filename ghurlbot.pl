@@ -126,10 +126,10 @@ sub read_mapfile($)
     $self->log("Reading $self->{mapfile}");
     open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
     while (<$fh>) {
-      # The mapfile is a tab-separated file with columns:
+      # The mapfile is a tab-separated file with four columns:
       # channel name, repository URL, delay, what
-      # where what contains zero or more of the words "issues" and
-      # "names", to indicate that issues and/or names are to be
+      # where what contains zero, one or both of the words "issues"
+      # and "names", to indicate that issues and/or names are to be
       # expanded on that channel. There may be multiple lines for the
       # same channel. The repository is added to the list for that
       # channel. Only the last delay and what for a channel are used.
@@ -183,9 +183,7 @@ sub part_channel($$)
   if (delete $self->{joined_channels}->{$channel}) {
 
     # If we keep a rejoin file, remove the channel from it.
-    if ($self->{rejoinfile}) {
-      $self->rewrite_rejoinfile();
-    }
+    $self->rewrite_rejoinfile() if $self->{rejoinfile};
   }
 }
 
@@ -218,20 +216,8 @@ sub chanjoin($$)
 }
 
 
-# # join_channel -- join a channel, the channel name is given as argument
-# sub join_channel
-# {
-#   my ($self, $channel, $key) = @_;
-
-#   $self->log("Joining $channel");
-
-#   # Use inherited method to join the channel.
-#   $self->SUPER::join_channel($channel, $key);
-# }
-
-
-# set_repository -- remember the repository $2 for channel $1
-sub set_repository($$)
+# add_repository -- remember the repository $2 for channel $1
+sub add_repository($$)
 {
   my ($self, $channel, $repository) = @_;
   my @h;
@@ -241,13 +227,13 @@ sub set_repository($$)
   $repository =~ s/ *+$//;	# Remove any final spaces
   $repository =~ s/\/$//;	# Remove any final slash
   if ($repository !~ m{/}) {	# Only a repository name
-    return "Sorry, I don't know the owner. Please, use 'OWNER/$repository'"
+    return "sorry, I don't know the owner. Please, use 'OWNER/$repository'"
 	if !defined $self->{repos}->{$channel};
     $repository = $self->{repos}->{$channel}->[0] =~ s/[^\/]*$/$repository/r;
   } elsif ($repository =~ m{^[^/]+/[^/]+$}) { # "owner/repository"
-    $repository = 'https://github.com/' . $repository;
+    $repository = "https://github.com/$repository";
   } elsif ($repository !~ m{^https://github.com/[^/]+/[^/]+$}) {
-    return "Sorry, that doesn't look like a valid repository name.";
+    return "sorry, that doesn't look like a valid repository name.";
   }
 
   # Add $repository at the head of the list of repositories for this
@@ -261,13 +247,6 @@ sub set_repository($$)
   $self->write_mapfile();
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
 
-  # # If it isn't already the current repo, make it so.
-  # if (($self->{repos}->{$channel} // '') ne $repository) {
-  #   $self->{repos}->{$channel} = $repository;
-  #   $self->write_mapfile();
-  #   $self->{history}->{$channel} = {}; # Forget recently expanded issues
-  # }
-
   return "OK. But note that I'm currently off. " .
       "Please use: ".$self->nick().", on"
       if defined $self->{suspend_issues}->{$channel} &&
@@ -278,6 +257,42 @@ sub set_repository($$)
   return "OK. But note that only issues are expanded. " .
       "To also expand names, please use: ".$self->nick().", set names to on"
       if defined $self->{suspend_names}->{$channel};
+  return 'OK';
+}
+
+
+# remove_repository -- remove a repository from this channel
+sub remove_repository($$$)
+{
+  my ($self, $channel, $repository) = @_;
+  my $repositories = $self->{repos}->{$channel} // [];
+  my $found = 0;
+  my @h;
+
+  return "sorry, this channel has no repositories." if ! @$repositories;
+
+  # Expand the repository to a full URL, if needed.
+  $repository =~ s/^ +//;	# Remove any leading spaces
+  $repository =~ s/ *+$//;	# Remove any final spaces
+  $repository =~ s/\/$//;	# Remove any final slash
+  if ($repository !~ m{/}) {	# Only a repository name
+    $repository = $repositories->[0] =~ s/[^\/]*$/$repository/r;
+  } elsif ($repository =~ m{^[^/]+/[^/]+$}) { # "owner/repository"
+    $repository = "https://github.com/$repository";
+  } elsif ($repository !~ m{^https://github.com/[^/]+/[^/]+$}) {
+    return "sorry, that doesn't look like a valid repository name.";
+  }
+
+  foreach (@$repositories) {
+    if ($_ ne $repository) {push @h, $_}
+    else {$found = 1}
+  }
+
+  return "$repository was already removed." if !$found;
+
+  $self->{repos}->{$channel} = \@h;
+  $self->write_mapfile();	     # Write the new list to disk.
+  $self->{history}->{$channel} = {}; # Forget recently expanded issues
   return 'OK';
 }
 
@@ -320,7 +335,6 @@ sub maybe_expand_references($$$$)
   my ($repositories, $linenr, $delay, $do_issues, $do_names, $response);
   my ($repository, @matchingrepos);
 
-  # $repository = $self->{repos}->{$channel} or return undef; # No repo known
   $repositories = $self->{repos}->{$channel} // [];
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
@@ -329,18 +343,12 @@ sub maybe_expand_references($$$$)
   $response = '';
 
   # Look for #number, prefix#number and @name.
-  # while ($text =~ /(?:^|\W)\K(#([0-9]+)|@(\w+))(?=\W|$)/g) {
   while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@(\w+))(?=\W|$)/g) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
-    if (!$addressed && (!$do_issues || $linenr <= $previous + $delay)) {
-      # If we are not explicitly addressed and either issue expansion
-      # is off or the same reference was already expanded less than
-      # $delay lines ago, then do nothing.
-      $self->log("Channel $channel, skipping $ref");
-
-    } elsif ($ref !~ /^@/) {	# It's a reference to an issue.
+    if ($ref !~ /^@/		# It's a reference to an issue.
+      && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
       # Find all active repos in this channel whose name start with
       # $prefix. E.g., if prefix is "i", it will match repos that have
       # an "i" at the start of the repo name, such as
@@ -358,11 +366,11 @@ sub maybe_expand_references($$$$)
 	# Did not find a match, but $prefix has a "/", maybe it is a repo name.
 	$repository = "https://github.com/$prefix";
       } elsif ($prefix && scalar @$repositories) {
-	# Guess an owner and make the repo "owner/$prefix"
-	$repositories->[0] =~ /([^\/]+)\/[^\/]*$/;
-	$repository = "$1/$prefix";
+	# Use the owner part of the most recent repo.
+	$repository = $repositories->[0] =~ s/[^\/]*$/$repository/r;
       } else {
 	# $prefix is empty or we can't guess an owner.
+	$self->log("Channel $channel, cannot infer a repository for $ref");
 	next;
       }
       $self->log("Channel $channel, $repository/issues/$issue");
@@ -371,10 +379,14 @@ sub maybe_expand_references($$$$)
       $response .= " $repository/issues/$issue\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
-    } else {			# It's a reference to a GitHub user name
+    } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
+      && ($addressed || ($do_names && $linenr > $previous + $delay))) {
       $self->log("channel $channel, https://github.com/$name");
       $response .= "-> @$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
+
+    } else {
+      $self->log("Channel $channel, skipping $ref");
     }
   }
   return $response;
@@ -410,8 +422,7 @@ sub status($$)
   } elsif (scalar @$repositories == 1) {
     $s .= ' and the repository is ' . $repositories->[0];
   } else {
-    $s .= ' and the repositories are';
-    $s .= " $_" foreach @$repositories;
+    $s .= ' and the repositories are ' . join(' ', @$repositories);
   }
   return $s;
 }
@@ -497,9 +508,13 @@ sub said($$)
   return $self->part_channel($channel), undef
       if $addressed && $text =~ /^ *bye *\.? *$/i;
 
-  return $self->set_repository($channel, $1)
+  return $self->add_repository($channel, $1)
       if $addressed &&
       $text =~ /^ *(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ]+) *$/i;
+
+  return $self->remove_repository($channel, $1)
+      if $addressed &&
+      $text =~ /^ *(?:forget|drop|remove|don't +use|do +not +use) +([^ ]+) *$/;
 
   return $self->set_delay($channel, 0 + $1)
       if $addressed &&

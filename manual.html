@@ -14,14 +14,14 @@
   <p>Ghurlbot is an IRC bot that gives the full URLs for GitHub issues
     and users. It typically has the nick name ‘ghurlbot’ on IRC.</p>
 
-  <h2>IRC command to link to an issue</h2>
+  <h2>IRC command to link to an issue: #</h2>
 
-  <p>When somebody types <code>#</code> plus a number, ghurlbot
-    responds with the full URL to the issue or pull request with that
-    number. E.g.:</p>
+  <p>When somebody types something that looks like a repository name
+    followed by <code>#</code> and an issue number, ghurlbot responds
+    with the full URL of that issue or pull request:</p>
 
-  <pre class=command>&lt;joe&gt; Let's talk about #13.
-&lt;ghurlbot&gt; -> 13 https://github.com/xxx/yyy/issues/13</pre>
+  <pre class=command>&lt;joe&gt; Let's talk about foo/bar#13.
+&lt;ghurlbot&gt; -> 13 https://github.com/foo/bar/issues/13</pre>
 
   <p>(The <code>-&gt;</code> is understood
     by <a href="https://w3c.github.io/scribe2/scribedoc.html"
@@ -29,22 +29,29 @@
     scribe.perl generates HTML from the IRC log.)</p>
 
   <p>Ghurlbot also tries to look up the issue on GitHub. If it
-    succeeds, it not unly shows a URL, but also a summary, e.g.:</p>
+    succeeds, it not only shows a URL, but also a summary, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; Next topic: w3c/scribe2#15
+&lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
+
+  <p>If you tell ghurlbot what repository (or repositories) you are
+    discussing (see <a href="#repo">below</a>), you can abbreviate the
+    repository name, or even omit it:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: #15
 &lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
 
-  <p>If you have told ghurlbot to look at more than one repository
-    (see <a href="#repo">below</a>), the above will only look in the
-    repository that was added to ghurlbot last. To look up an issue in
-    one of the other repositories, prefix the number with the name of
-    the repository:</p>
+  <p>If you have told ghurlbot to look at more than one repository,
+    the above will only look in the repository that was added to
+    ghurlbot last. To look up an issue in one of the other
+    repositories, prefix the number with the name of the
+    repository:</p>
 
   <pre class=command>&lt;joe&lgt; Let's talk about aria#13.</pre>
 
   <p>The prefix only needs to be long enough to be unambiguous. So if
     there are no other repositories known to ghurlbot that start with
-    an ‘a’, you it is enough to say</p>
+    an ‘a’, it is enough to say</p>
 
   <pre class=command>&lt;joe&gt; a#13</pre>
 
@@ -52,7 +59,17 @@
 
   <pre class=command>&lt;joe&gt; w3c/a#13</pre>
 
-  <h2>IRC command to link to a user name</h2>
+  <p>Only if none of the repositories that ghurlbot knows starts with
+    those letters, ghurlbot assumes that the given name represents the
+    full name of a repository.</p>
+
+  <p>You can omit the owner if it is the same as the repository at the
+    top of ghurlbot's list:</p>
+
+  <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
+&lt;ghurlbot&gt; -> Issue 3 [closed] Errors replacing URLs (nigelmegitt) https://github.com/w3c/scribe2/issues/3</pre>
+
+  <h2>IRC command to link to a user name: @</h2>
 
   <p>When somebody types <code>@</code> plus a name, it responds with
     the full URL to that person or team. E.g.:</p>
@@ -65,10 +82,11 @@
     (e.g., ‘example.com/slides#13’). If ghurlbot does not seem
     to recognize a reference, try to put spaces around it.</p>
 
-  <h3 id=repo>Specifying the GitHub repository</h3>
+  <h2 id=repo>Specifying the GitHub repository</h2>
 
-  <p>To be able to expand issues and pull requests, the bot first
-    needs to know the repository that is being discussed:</p>
+  <p>To be able to refer to issues and pull requests with the
+    abbreviated syntax, you nee to tell what repository is being
+    discussed on this channel:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, discussing https://github.com/xxx/yyy</pre>
 
@@ -94,7 +112,17 @@
     dismissed from a channel. When it is later asked to rejoin, it
     continues using the same repositories.</p>
 
-  <h3>Suspending the expansion of references</h3>
+  <h2>Removing repositories</h2>
+
+  <p>To remove a repository from the list that ghurlbot knows:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, drop xxx/yyy</pre>
+
+  <p>Instead of <code>drop</code>, you can also
+    say <code>forget</code>, <code>remove</code>, <code>don't
+    use</code> or <code>do not use</code>.</p>
+
+  <h2>Suspending the expansion of references</h2>
 
   <p>You can turn the bot off temporarily without dismissing it from
     the channel and turn it back on again:</p>
@@ -129,14 +157,15 @@
   <pre class=command>&lt;joe&gt; ghurlbot, #13 and #14?
 &lt;ghurlbot&gt; -&gt; #13 https://github.com/xxx/yyy/issues/13
 &lt;ghurlbot&gt; -&gt; #14 https://github.com/xxx/yyy/issues/14</pre>
-  <h3>Inviting and dismissing the bot</h3>
+
+  <h2>Inviting and dismissing the bot</h2>
 
   <p>You can invite the bot to a channel and dismiss it:</p>
 
-  <pre class=command>&lt;joe&gt; /invite GHURLBot
+  <pre class=command>&lt;joe&gt; /invite ghurlbot
 &lt;joe&gt; ghurlbot, bye</pre>
 
-  <h3>Reducing the number of responses from the bot</h3>
+  <h2>Reducing the number of responses from the bot</h2>
 
   <p>To avoid flooding the IRC conversation with links, the bot will
     not expand a reference if it has already expanded the same
@@ -153,19 +182,19 @@
     the channel. When you address GHURLBot directly, it will
     respond even if it gave the same URL recently.</p>
 
-  <h3>Inquiring about the current status</h3>
+  <h2>Inquiring about the current status</h2>
 
   <p>You can ask what repository it is currently using:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, status?
 &lt;ghurlbot&gt; Delay is 15 lines, issues are on, names are on and I'm using https://github.com/xxx/yyy</pre>
 
-  <h3>Getting help</h3>
+  <h2>Getting help</h2>
 
   <p>The bot also reacts to <code>help</code> with some information
     about itself and a link to this manual.</p>
 
-  <h3>Source</h3>
+  <h2>Source</h2>
 
   <p>GHURLBot is written in Perl.
     The <a href="https://github.com/w3c/GHURLBot" >source</a> is on
@@ -175,4 +204,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Mon May  2 21:21:18 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Thu May  5 22:53:36 2022 UTC $ by $Author: Bert Bos $</address>
