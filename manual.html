@@ -2,21 +2,21 @@
 <html lang=en-us>
   <meta charset=utf-8>
   <meta name="viewport" content="width=device-width">
-  <title>GHURLBot manual</title>
+  <title>Ghurlbot manual</title>
   <link rel=stylesheet type="text/css"
 	href="https://www.w3.org/Guide/guide2006.css">
   <link rel="shortcut icon"
 	href="https://www.w3.org/Icons/WWW/Literature.gif">
 
 
-  <h1>GHURLBot manual</h1>
+  <h1>Ghurlbot manual</h1>
 
-  <p>GHURLBot is an IRC bot that gives the full URLs for GitHub issues
+  <p>Ghurlbot is an IRC bot that gives the full URLs for GitHub issues
     and users. It typically has the nick name ‘ghurlbot’ on IRC.</p>
 
-  <h2>IRC commands</h2>
+  <h2>IRC command to link to an issue</h2>
 
-  <p>When somebody types <code>#</code> plus a number, GHURLBot
+  <p>When somebody types <code>#</code> plus a number, ghurlbot
     responds with the full URL to the issue or pull request with that
     number. E.g.:</p>
 
@@ -28,11 +28,31 @@
     >scribe.perl</a> and causes the URL to be formatted as a link when
     scribe.perl generates HTML from the IRC log.)</p>
 
-  <p>GHURLBot also tries to look up the issue on GitHub. If it
+  <p>Ghurlbot also tries to look up the issue on GitHub. If it
     succeeds, it not unly shows a URL, but also a summary, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: #15
 &lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
+
+  <p>If you have told ghurlbot to look at more than one repository
+    (see <a href="#repo">below</a>), the above will only look in the
+    repository that was added to ghurlbot last. To look up an issue in
+    one of the other repositories, prefix the number with the name of
+    the repository:</p>
+
+  <pre class=command>&lt;joe&lgt; Let's talk about aria#13.</pre>
+
+  <p>The prefix only needs to be long enough to be unambiguous. So if
+    there are no other repositories known to ghurlbot that start with
+    an ‘a’, you it is enough to say</p>
+
+  <pre class=command>&lt;joe&gt; a#13</pre>
+
+  <p>You can optionally include the repository owner in the prefix:</p>
+
+  <pre class=command>&lt;joe&gt; w3c/a#13</pre>
+
+  <h2>IRC command to link to a user name</h2>
 
   <p>When somebody types <code>@</code> plus a name, it responds with
     the full URL to that person or team. E.g.:</p>
@@ -40,12 +60,12 @@
   <pre class=command>&lt;joe&gt; That comment came from @aliciag
 &lt;ghurlbot&gt; -&gt; @aliciag https://github.com/aliciag</pre>
 
-  <p>GHURLBot only expands a reference that is on in its own, not
+  <p>ghurlbot only expands a reference that is on in its own, not
     one that seems to be attached to something else, such as a URL
-    (e.g., ‘example.com/slides#13’). If GHURLBot does not seem
+    (e.g., ‘example.com/slides#13’). If ghurlbot does not seem
     to recognize a reference, try to put spaces around it.</p>
 
-  <h3>Specifying the GitHub repository</h3>
+  <h3 id=repo>Specifying the GitHub repository</h3>
 
   <p>To be able to expand issues and pull requests, the bot first
     needs to know the repository that is being discussed:</p>
@@ -61,14 +81,18 @@
 
   <pre class=command>&lt;joe&gt; ghurlbot, discussing xxx/yyy</pre>
 
-  <p>And if you switch to a different repository with the same owner,
+  <p>And if you previously specified a repository with the same owner,
     you can also omit the owner:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, discussing yyy</pre>
 
-  <p>GHURLBot remembers the last repository even when it is
+  <p>Every time you use the command, ghurlbot will add the given
+    repository to its list. (Or move it to the top of the list, if it
+    was already in the list.)
+
+  <p>Ghurlbot remembers the repositories even when it is
     dismissed from a channel. When it is later asked to rejoin, it
-    continues using the last repository.</p>
+    continues using the same repositories.</p>
 
   <h3>Suspending the expansion of references</h3>
 

@@ -7,6 +7,8 @@
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
+# TODO: A way to remove a repository from the list for a channel.
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -46,13 +48,13 @@ sub init($)
   my $self = shift;
   my $errmsg;
 
-  $self->{delays} = {}; # Maps channels to their delay (# of lines)
-  $self->{linenumber} = {}; # Maps channels to their # of lines seen
+  $self->{delays} = {}; # Maps from a channel to a delay (# of lines)
+  $self->{linenumber} = {}; # Maps from a channel to a # of lines seen
   $self->{joined_channels} = {}; # Set of all channels currently joined
-  $self->{history} = {}; # Maps channels to lists of when each ref was expanded
+  $self->{history} = {}; # Maps a channel to a map of when each ref was expanded
   $self->{suspend_issues} = {}; # Set of channels currently not expanding issues
   $self->{suspend_names} = {}; # Set of channels currently not expanding names
-  $self->{repos} = {}; # Maps channels to their repository
+  $self->{repos} = {}; # Maps from a channel to a list of repository URLs
 
   # Create a user agent to retrieve data from GitHub, if needed.
   if ($self->{github_api_token}) {
@@ -99,32 +101,6 @@ sub read_rejoin_list($)
 }
 
 
-# read_mapfile -- read or create the file mapping channels to repositories
-sub read_mapfile($)
-{
-  my $self = shift;
-
-  if (-f $self->{mapfile}) {		# File exists
-    $self->log("Reading $self->{mapfile}");
-    open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
-    while (<$fh>) {
-      my ($channel, $repo, $delay, $what) =
-	  $_ =~ /^([^\t]+)\t([^\t]+)\t([0-9]+)\t([^\t]*)\n?$/
-	  or return "$self->{mapfile}: wrong syntax";
-      $self->{repos}->{$channel} = $repo;
-      $self->{delays}->{$channel} = $delay;
-      $self->{suspend_issues}->{$channel} = 1 if $what !~ /\bissues\b/;
-      $self->{suspend_names}->{$channel} = 1 if $what !~ /\bnames\b/;
-    }
-  } else {				# File does not exist yet
-    $self->log("Creating $self->{mapfile}");
-    open my $fh, ">", $self->{mapfile} or
-	$self->log("Cannot create $self->{mapfile}: $!");
-  }
-  return undef;				# No errors
-}
-
-
 # rewrite_rejoinfile -- replace the rejoinfile with an updated one
 sub rewrite_rejoinfile($)
 {
@@ -141,18 +117,53 @@ sub rewrite_rejoinfile($)
 }
 
 
+# read_mapfile -- read or create the file mapping channels to repositories
+sub read_mapfile($)
+{
+  my $self = shift;
+
+  if (-f $self->{mapfile}) {		# File exists
+    $self->log("Reading $self->{mapfile}");
+    open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
+    while (<$fh>) {
+      # The mapfile is a tab-separated file with columns:
+      # channel name, repository URL, delay, what
+      # where what contains zero or more of the words "issues" and
+      # "names", to indicate that issues and/or names are to be
+      # expanded on that channel. There may be multiple lines for the
+      # same channel. The repository is added to the list for that
+      # channel. Only the last delay and what for a channel are used.
+      my ($channel, $repo, $delay, $what) =
+	  $_ =~ /^([^\t]+)\t([^\t]+)\t([0-9]+)\t([^\t]*)\n?$/
+	  or return "$self->{mapfile}: wrong syntax";
+      push @{$self->{repos}->{$channel}}, $repo;
+      $self->{delays}->{$channel} = $delay;
+      $self->{suspend_issues}->{$channel} = 1 if $what !~ /\bissues\b/;
+      $self->{suspend_names}->{$channel} = 1 if $what !~ /\bnames\b/;
+    }
+  } else {				# File does not exist yet
+    $self->log("Creating $self->{mapfile}");
+    open my $fh, ">", $self->{mapfile} or
+	$self->log("Cannot create $self->{mapfile}: $!");
+  }
+  return undef;				# No errors
+}
+
+
 # write_mapfile -- write the current status to file
 sub write_mapfile($)
 {
   my $self = shift;
 
   if (open my $fh, '>', $self->{mapfile}) {
-    foreach (keys %{$self->{repos}}) {
+    foreach my $channel (keys %{$self->{repos}}) {
       my $what = '';
-      $what .= 'issues,' if !defined $self->{suspend_issues}->{$_};
-      $what .= 'names,' if !defined $self->{suspend_names}->{$_};
-      printf $fh "%s\t%s\t%d\t%s\n", $_, $self->{repos}->{$_},
-	  $self->{delays}->{$_} // DEFAULT_DELAY, $what;
+      $what .= 'issues,' if !defined $self->{suspend_issues}->{$channel};
+      $what .= 'names,' if !defined $self->{suspend_names}->{$channel};
+      foreach my $repo (@{$self->{repos}->{$channel}}) {
+	printf $fh "%s\t%s\t%d\t%s\n", $channel, $repo,
+	    $self->{delays}->{$channel} // DEFAULT_DELAY, $what;
+      }
     }
   } else {
     $self->log("Cannot write $self->{mapfile}: $!");
@@ -223,6 +234,7 @@ sub chanjoin($$)
 sub set_repository($$)
 {
   my ($self, $channel, $repository) = @_;
+  my @h;
 
   # Expand the repository to a full URL, if needed.
   $repository =~ s/^ +//;	# Remove any leading spaces
@@ -231,18 +243,30 @@ sub set_repository($$)
   if ($repository !~ m{/}) {	# Only a repository name
     return "Sorry, I don't know the owner. Please, use 'OWNER/$repository'"
 	if !defined $self->{repos}->{$channel};
-    $repository = $self->{repos}->{$channel} =~ s/[^\/]*$/$repository/r;
+    $repository = $self->{repos}->{$channel}->[0] =~ s/[^\/]*$/$repository/r;
   } elsif ($repository =~ m{^[^/]+/[^/]+$}) { # "owner/repository"
     $repository = 'https://github.com/' . $repository;
   } elsif ($repository !~ m{^https://github.com/[^/]+/[^/]+$}) {
     return "Sorry, that doesn't look like a valid repository name.";
   }
 
-  if (($self->{repos}->{$channel} // '') ne $repository) {
-    $self->{repos}->{$channel} = $repository;
-    $self->write_mapfile();
-    $self->{history}->{$channel} = {}; # Forget recently expanded issues
+  # Add $repository at the head of the list of repositories for this
+  # channel, or move it to the head, if it was already in the list.
+  if (defined $self->{repos}->{$channel}) {
+    @h = grep $_ ne $repository, @{$self->{repos}->{$channel}};
   }
+  unshift @h, $repository;
+  $self->{repos}->{$channel} = \@h;
+
+  $self->write_mapfile();
+  $self->{history}->{$channel} = {}; # Forget recently expanded issues
+
+  # # If it isn't already the current repo, make it so.
+  # if (($self->{repos}->{$channel} // '') ne $repository) {
+  #   $self->{repos}->{$channel} = $repository;
+  #   $self->write_mapfile();
+  #   $self->{history}->{$channel} = {}; # Forget recently expanded issues
+  # }
 
   return "OK. But note that I'm currently off. " .
       "Please use: ".$self->nick().", on"
@@ -293,32 +317,64 @@ sub get_issue_summary($$$)
 sub maybe_expand_references($$$$)
 {
   my ($self, $text, $channel, $addressed) = @_;
-  my ($repository, $linenr, $delay, $do_issues, $do_names, $response);
+  my ($repositories, $linenr, $delay, $do_issues, $do_names, $response);
+  my ($repository, @matchingrepos);
 
-  $repository = $self->{repos}->{$channel} or return undef; # No repo known
+  # $repository = $self->{repos}->{$channel} or return undef; # No repo known
+  $repositories = $self->{repos}->{$channel} // [];
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
   $do_issues = !defined $self->{suspend_issues}->{$channel};
   $do_names = !defined $self->{suspend_names}->{$channel};
   $response = '';
 
-  while ($text =~ /(?:^|\W)\K(#([0-9]+)|@(\w+))(?=\W|$)/g) {
-    my ($ref, $issue, $name) = ($1, $2, $3);
+  # Look for #number, prefix#number and @name.
+  # while ($text =~ /(?:^|\W)\K(#([0-9]+)|@(\w+))(?=\W|$)/g) {
+  while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@(\w+))(?=\W|$)/g) {
+    my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
-    if ($ref =~ /^#/
-      && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
+
+    if (!$addressed && (!$do_issues || $linenr <= $previous + $delay)) {
+      # If we are not explicitly addressed and either issue expansion
+      # is off or the same reference was already expanded less than
+      # $delay lines ago, then do nothing.
+      $self->log("Channel $channel, skipping $ref");
+
+    } elsif ($ref !~ /^@/) {	# It's a reference to an issue.
+      # Find all active repos in this channel whose name start with
+      # $prefix. E.g., if prefix is "i", it will match repos that have
+      # an "i" at the start of the repo name, such as
+      # "https://github.com/w3c/i18n" and
+      # "https://github.com/foo/ima"; if prefix is "w3c/i" it will
+      # match a repo that has "w3c" as owner and a repo name that
+      # starts with "i", i.e., it will only match the first of those
+      # two; and likewise if prefix is "i18". If prefix is empty, all
+      # repos match.
+      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repositories;
+      if (@matchingrepos) {
+	# Found one or more repos whose name starts with $prefix
+	$repository = $matchingrepos[0];
+      } elsif ($prefix =~ /\//) {
+	# Did not find a match, but $prefix has a "/", maybe it is a repo name.
+	$repository = "https://github.com/$prefix";
+      } elsif ($prefix && scalar @$repositories) {
+	# Guess an owner and make the repo "owner/$prefix"
+	$repositories->[0] =~ /([^\/]+)\/[^\/]*$/;
+	$repository = "$1/$prefix";
+      } else {
+	# $prefix is empty or we can't guess an owner.
+	next;
+      }
       $self->log("Channel $channel, $repository/issues/$issue");
       $response .= '-> ';
       $response .= $self->get_issue_summary($repository, $issue) // "#$issue";
       $response .= " $repository/issues/$issue\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
-    } elsif ($ref =~ /^@/
-      && ($addressed || ($do_names && $linenr > $previous + $delay))) {
+
+    } else {			# It's a reference to a GitHub user name
       $self->log("channel $channel, https://github.com/$name");
       $response .= "-> @$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
-    } else {
-      $self->log("Channel $channel, skipping $ref");
     }
   }
   return $response;
@@ -342,15 +398,22 @@ sub set_delay($$$)
 sub status($$)
 {
   my ($self, $channel) = @_;
+  my $repositories = $self->{repos}->{$channel};
+  my $s = '';
 
-  return 'the delay is '
-      . ($self->{delays}->{$channel} // DEFAULT_DELAY)
-      . ', issues are '
-      . ($self->{suspend_issues}->{$channel} ? 'off' : 'on')
-      . ', names are '
-      . ($self->{suspend_names}->{$channel} ? 'off' : 'on')
-      . ' and the repository is '
-      . ($self->{repos}->{$channel} // 'not set.');
+  $s .= 'the delay is ' . ($self->{delays}->{$channel} // DEFAULT_DELAY);
+  $s .= ', issues are ' . ($self->{suspend_issues}->{$channel} ? 'off' : 'on');
+  $s .= ', names are ' . ($self->{suspend_names}->{$channel} ? 'off' : 'on');
+
+  if (!defined $repositories || scalar @$repositories == 0) {
+    $s .= ' and no repositories are specified.';
+  } elsif (scalar @$repositories == 1) {
+    $s .= ' and the repository is ' . $repositories->[0];
+  } else {
+    $s .= ' and the repositories are';
+    $s .= " $_" foreach @$repositories;
+  }
+  return $s;
 }
 
 
