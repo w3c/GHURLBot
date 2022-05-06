@@ -349,16 +349,21 @@ sub maybe_expand_references($$$$)
 
     if ($ref !~ /^@/		# It's a reference to an issue.
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      # Find all active repos in this channel whose name start with
-      # $prefix. E.g., if prefix is "i", it will match repos that have
-      # an "i" at the start of the repo name, such as
-      # "https://github.com/w3c/i18n" and
+      # First find all repos in our list with the exact name $prefix
+      # (with or without an owner part). If there are none, find all
+      # repos whose name start with $prefix. E.g., if prefix is "i",
+      # it will match repos that have an "i" at the start of the repo
+      # name, such as "https://github.com/w3c/i18n" and
       # "https://github.com/foo/ima"; if prefix is "w3c/i" it will
       # match a repo that has "w3c" as owner and a repo name that
       # starts with "i", i.e., it will only match the first of those
       # two; and likewise if prefix is "i18". If prefix is empty, all
-      # repos match.
-      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repositories;
+      # repos match. (It is important to start with an exact match,
+      # otherwise if there two repos "rdf-star" and
+      # "rdf-star-wg-charter", you can never get to the former,
+      # because it is a prefix of the latter.)
+      @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/, @$repositories or
+	  @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repositories;
       if (@matchingrepos) {
 	# Found one or more repos whose name starts with $prefix
 	$repository = $matchingrepos[0];
@@ -367,7 +372,7 @@ sub maybe_expand_references($$$$)
 	$repository = "https://github.com/$prefix";
       } elsif ($prefix && scalar @$repositories) {
 	# Use the owner part of the most recent repo.
-	$repository = $repositories->[0] =~ s/[^\/]*$/$repository/r;
+	$repository = $repositories->[0] =~ s/[^\/]*$/$prefix/r;
       } else {
 	# $prefix is empty or we can't guess an owner.
 	$self->log("Channel $channel, cannot infer a repository for $ref");
