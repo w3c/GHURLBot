@@ -300,10 +300,17 @@ sub remove_repository($$$)
 # get_issue_summary -- try to retrieve info about an issue or pull request
 sub get_issue_summary($$$)
 {
-  my ($self, $repository, $issue) = @_;
-  my ($owner, $repo, $res, $ref, $s);
+  my ($body, $self, $repository, $issue) = @_;
+  my ($owner, $repo, $res, $ref);
 
-  return undef if !$self->{ua};
+  # This is not a method, but a function that is called by forkit() to
+  # run as a background process. It prints text for the channel to
+  # STDOUT and log entries to STDERR.
+
+  if (!defined $self->{ua}) {
+    print "-> \#$issue $repository/issues/$issue\n";
+    return;
+  }
 
   ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
 
@@ -311,20 +318,24 @@ sub get_issue_summary($$$)
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
     'Accept' => 'application/vnd.github.v3+json');
   if ($res->code == 404) {
-    return "Issue $issue [not found]";
+    print "-> Issue $issue [not found] $repository/issues/$issue\n";
+    return;
   } elsif ($res->code == 410) {
-    return "Issue $issue [gone]";
+    print "-> Issue $issue [gone] $repository/issues/$issue\n";
+    return;
   } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
-    $self->log("Code ".$res->code."\n".$res->decoded_content);
-    return undef;
+    print STDERR "Code ", $res->code, "\n", $res->decoded_content, "\n";
+    print "-> \#$issue $repository/issues/$issue\n";
+    return;
   }
 
   $ref = decode_json($res->decoded_content);
-  $s = ($ref->{'pull_request'} ? 'Pull Request' : 'Issue') . " $issue ";
-  $s .= $ref->{'state'} eq 'closed' ? '[closed] ' : '';
-  $s .= $ref->{'title'} . ' (' . $ref->{'user'}->{'login'} . ')';
-  $s .= ', ' . $_->{'name'} foreach @{$ref->{'labels'}};
-  return $s;
+  print '-> ',
+      ($ref->{'pull_request'} ? 'Pull Request' : 'Issue'), " $issue ",
+      ($ref->{'state'} eq 'closed' ? '[closed] ' : ''),
+      $ref->{'title'}, ' (', $ref->{'user'}->{'login'}, ')';
+  print ', ', $_->{'name'} foreach @{$ref->{'labels'}};
+  print " $repository/issues/$issue\n";
 }
 
 
@@ -379,9 +390,8 @@ sub maybe_expand_references($$$$)
 	next;
       }
       $self->log("Channel $channel, $repository/issues/$issue");
-      $response .= '-> ';
-      $response .= $self->get_issue_summary($repository, $issue) // "#$issue";
-      $response .= " $repository/issues/$issue\n";
+      $self->forkit({run => \&get_issue_summary, channel => $channel,
+		     arguments => [$self, $repository, $issue]});
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
