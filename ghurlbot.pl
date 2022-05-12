@@ -297,8 +297,8 @@ sub remove_repository($$$)
 }
 
 
-# get_issue_summary -- try to retrieve info about an issue or pull request
-sub get_issue_summary($$$)
+# get_issue_summary_process -- try to retrieve info about an issue/pull request
+sub get_issue_summary_process($$$)
 {
   my ($body, $self, $repository, $issue) = @_;
   my ($owner, $repo, $res, $ref);
@@ -339,14 +339,208 @@ sub get_issue_summary($$$)
 }
 
 
+# find_repository_for_issue -- expand issue reference to full URL, or undef
+sub find_repository_for_issue($$$)
+{
+  my ($self, $channel, $ref) = @_;
+  my ($prefix, $issue, $repos, @matchingrepos);
+
+  ($prefix, $issue) = $ref =~ /^((?:[a-z0-9\/._-]+)?)#([0-9]+)$/i or do {
+    $self->log("Bug! wrong argument to find_repository_for_issue()");
+    return undef;
+  };
+
+  $repos = $self->{repos}->{$channel} // [];
+
+  # First find all repos in our list with the exact name $prefix
+  # (with or without an owner part). If there are none, find all
+  # repos whose name start with $prefix. E.g., if prefix is "i",
+  # it will match repos that have an "i" at the start of the repo
+  # name, such as "https://github.com/w3c/i18n" and
+  # "https://github.com/foo/ima"; if prefix is "w3c/i" it will
+  # match a repo that has "w3c" as owner and a repo name that
+  # starts with "i", i.e., it will only match the first of those
+  # two; and likewise if prefix is "i18". If prefix is empty, all
+  # repos match. (It is important to start with an exact match,
+  # otherwise if there two repos "rdf-star" and
+  # "rdf-star-wg-charter", you can never get to the former,
+  # because it is a prefix of the latter.)
+  @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/, @$repos or
+      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repos;
+
+  # Found one or more repos whose name starts with $prefix:
+  return $matchingrepos[0] if @matchingrepos;
+
+  # Did not find a match, but $prefix has a "/", maybe it is a repo name:
+  return "https://github.com/$prefix" if $prefix =~ /\//;
+
+  # Use the owner part of the most recent repo:
+  return $repos->[0] =~ s/[^\/]*$/$prefix/r if $prefix && scalar @$repos;
+
+  # No recent repo, so we can't guess the owner:
+  $self->log("Channel $channel, cannot infer a repository for $ref");
+  return undef;
+}
+
+
+# create_issue_process -- process that creates an issue on GitHub
+sub create_issue_process($$$$)
+{
+  my ($body, $self, $repository, $text) = @_;
+  my ($res, $content);
+
+  $repository =~ s/^https:\/\/github.com//;
+  $res = $self->{ua}->post(
+    "https://api.github.com/repos$repository/issues",
+    Content => encode_json({title => $text}));
+
+  print STDERR "Create issue \"$text\" in $repository -> ", $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot create issue. Forbidden.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot create issue. Repository not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot create issue. Repository is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot create issue. Validation failed.\n";
+  } elsif ($res->code == 503) {
+    print "Cannot create issue. Service unavailable.\n";
+  } elsif ($res->code != 201) {
+    print "Cannot create issue. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    print "Created -> issue " . $content->{number} . " " .
+	$content->{title} . " " . $content->{html_url} . "\n";
+  }
+}
+
+
+# create_issue -- create a new issue
+sub create_issue($$$)
+{
+  my ($self, $channel, $text) = @_;
+
+  return "Sorry, I don't know what repository to use."
+      if !defined $self->{repos}->{$channel} ||
+      scalar @{$self->{repos}->{$channel}} == 0;
+
+  $self->forkit(
+    {run => \&create_issue_process, channel => $channel,
+     arguments => [$self, $self->{repos}->{$channel}->[0], $text]});
+
+  return undef;			# The forked process will print a result
+}
+
+
+# close_issue_process -- process that closes an issue on GitHub
+sub close_issue_process($$$$)
+{
+  my ($body, $self, $repository, $text) = @_;
+  my ($res, $content, $issuenumber);
+
+  ($issuenumber) = $text =~ /#(.*)/; # Just the number
+  $repository =~ s/^https:\/\/github.com\///;
+  $res = $self->{ua}->patch(
+    "https://api.github.com/repos/$repository/issues/$issuenumber",
+    Content => encode_json({state => 'closed'}));
+
+  print STDERR "Close $repository#$issuenumber -> ", $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot close issue $text. Forbidden.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot close issue $text. Issue not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot close issue $text. Issue is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot close issue $text. Validation failed.\n";
+  } elsif ($res->code == 503) {
+    print "Cannot close issue $text. Service unavailable.\n";
+  } elsif ($res->code != 200) {
+    print "Cannot close issue $text. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    print "Closed -> issue " . $content->{number} . " " .
+	$content->{title} . " " . $content->{html_url} . "\n";
+  }
+}
+
+
+# close_issue -- close an issue
+sub close_issue($$$)
+{
+  my ($self, $channel, $text) = @_;
+  my $repository;
+
+  $repository = $self->find_repository_for_issue($channel, $text) or
+      return "Sorry, I don't know what repository to use for $text";
+
+  $self->forkit(
+    {run => \&close_issue_process, channel => $channel,
+     arguments => [$self, $repository, $text]});
+
+  return undef;			# The forked process will print a result
+}
+
+
+# reopen_issue_process -- process that reopens an issue on GitHub
+sub reopen_issue_process($$$$)
+{
+  my ($body, $self, $repository, $text) = @_;
+  my ($res, $content, $issuenumber);
+
+  ($issuenumber) = $text =~ /#(.*)/; # Just the number
+  $repository =~ s/^https:\/\/github.com\///;
+  $res = $self->{ua}->patch(
+    "https://api.github.com/repos/$repository/issues/$issuenumber",
+    Content => encode_json({state => 'open'}));
+
+  print STDERR "Reopen $repository#$issuenumber -> ", $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot reopen issue $text. Forbidden.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot reopen issue $text. Issue not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot reopen issue $text. Issue is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot reopen issue $text. Validation failed.\n";
+  } elsif ($res->code == 503) {
+    print "Cannot reopen issue $text. Service unavailable.\n";
+  } elsif ($res->code != 200) {
+    print "Cannot reopen issue $text. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    print "Reopened -> issue " . $content->{number} . " " .
+	$content->{title} . " " . $content->{html_url} . "\n";
+  }
+}
+
+
+# reopen_issue -- reopen an issue
+sub reopen_issue($$$)
+{
+  my ($self, $channel, $text) = @_;
+  my $repository;
+
+  $repository = $self->find_repository_for_issue($channel, $text) or
+      return "Sorry, I don't know what repository to use for $text";
+
+  $self->forkit(
+    {run => \&reopen_issue_process, channel => $channel,
+     arguments => [$self, $repository, $text]});
+
+  return undef;			# The forked process will print a result
+}
+
+
 # maybe_expand_references -- return URLs for the issues and names in $text
 sub maybe_expand_references($$$$)
 {
   my ($self, $text, $channel, $addressed) = @_;
-  my ($repositories, $linenr, $delay, $do_issues, $do_names, $response);
-  my ($repository, @matchingrepos);
+  my ($linenr, $delay, $do_issues, $do_names, $response, $repository);
 
-  $repositories = $self->{repos}->{$channel} // [];
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
   $do_issues = !defined $self->{suspend_issues}->{$channel};
@@ -360,37 +554,12 @@ sub maybe_expand_references($$$$)
 
     if ($ref !~ /^@/		# It's a reference to an issue.
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      # First find all repos in our list with the exact name $prefix
-      # (with or without an owner part). If there are none, find all
-      # repos whose name start with $prefix. E.g., if prefix is "i",
-      # it will match repos that have an "i" at the start of the repo
-      # name, such as "https://github.com/w3c/i18n" and
-      # "https://github.com/foo/ima"; if prefix is "w3c/i" it will
-      # match a repo that has "w3c" as owner and a repo name that
-      # starts with "i", i.e., it will only match the first of those
-      # two; and likewise if prefix is "i18". If prefix is empty, all
-      # repos match. (It is important to start with an exact match,
-      # otherwise if there two repos "rdf-star" and
-      # "rdf-star-wg-charter", you can never get to the former,
-      # because it is a prefix of the latter.)
-      @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/, @$repositories or
-	  @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repositories;
-      if (@matchingrepos) {
-	# Found one or more repos whose name starts with $prefix
-	$repository = $matchingrepos[0];
-      } elsif ($prefix =~ /\//) {
-	# Did not find a match, but $prefix has a "/", maybe it is a repo name.
-	$repository = "https://github.com/$prefix";
-      } elsif ($prefix && scalar @$repositories) {
-	# Use the owner part of the most recent repo.
-	$repository = $repositories->[0] =~ s/[^\/]*$/$prefix/r;
-      } else {
-	# $prefix is empty or we can't guess an owner.
+      $repository = $self->find_repository_for_issue($channel, $ref) or do {
 	$self->log("Channel $channel, cannot infer a repository for $ref");
 	next;
-      }
+      };
       $self->log("Channel $channel, $repository/issues/$issue");
-      $self->forkit({run => \&get_issue_summary, channel => $channel,
+      $self->forkit({run => \&get_issue_summary_process, channel => $channel,
 		     arguments => [$self, $repository, $issue]});
       $self->{history}->{$channel}->{$ref} = $linenr;
 
@@ -559,6 +728,17 @@ sub said($$)
   return $self->set_suspend_names($channel, 1)
       if $addressed &&
       $text =~ /^ *(?:set +)?names *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
+
+  return $self->create_issue($channel, $1)
+      if $text =~ /^ *issue *: *(.*)$/i;
+
+  return $self->close_issue($channel, $1)
+      if $text =~ /^ *close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i;
+
+  return $self->reopen_issue($channel, $1)
+      if $text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
