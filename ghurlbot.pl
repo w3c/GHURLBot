@@ -9,6 +9,10 @@
 #
 # TODO: A way to remove a repository from the list for a channel.
 #
+# TODO: Allow "action-9" as an alternative for "#9"?
+#
+# TODO: Commands to register mappings of names to GitHub login names.
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -27,6 +31,7 @@ use lib "$FindBin::Bin";	# Look for modules in agendabot's directory
 use parent 'Bot::BasicBot::ExtendedBot';
 use strict;
 use warnings;
+use v5.16;			# Enable fc
 use Getopt::Std;
 use Scalar::Util 'blessed';
 use Term::ReadKey;		# To read a password without echoing
@@ -36,6 +41,9 @@ use File::Copy;
 use LWP;
 use LWP::ConnCache;
 use JSON::PP;
+# use Date::Parse;
+use Date::Manip::Date;
+# use POSIX qw(strftime);
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
@@ -297,48 +305,6 @@ sub remove_repository($$$)
 }
 
 
-# get_issue_summary_process -- try to retrieve info about an issue/pull request
-sub get_issue_summary_process($$$)
-{
-  my ($body, $self, $repository, $issue) = @_;
-  my ($owner, $repo, $res, $ref);
-
-  # This is not a method, but a function that is called by forkit() to
-  # run as a background process. It prints text for the channel to
-  # STDOUT and log entries to STDERR.
-
-  if (!defined $self->{ua}) {
-    print "-> \#$issue $repository/issues/$issue\n";
-    return;
-  }
-
-  ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
-
-  $res = $self->{ua}->get(
-    "https://api.github.com/repos/$owner/$repo/issues/$issue",
-    'Accept' => 'application/vnd.github.v3+json');
-  if ($res->code == 404) {
-    print "-> Issue $issue [not found] $repository/issues/$issue\n";
-    return;
-  } elsif ($res->code == 410) {
-    print "-> Issue $issue [gone] $repository/issues/$issue\n";
-    return;
-  } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
-    print STDERR "Code ", $res->code, "\n", $res->decoded_content, "\n";
-    print "-> \#$issue $repository/issues/$issue\n";
-    return;
-  }
-
-  $ref = decode_json($res->decoded_content);
-  print '-> ',
-      ($ref->{'pull_request'} ? 'Pull Request' : 'Issue'), " $issue ",
-      ($ref->{'state'} eq 'closed' ? '[closed] ' : ''),
-      $ref->{'title'}, ' (', $ref->{'user'}->{'login'}, ')';
-  print ', ', $_->{'name'} foreach @{$ref->{'labels'}};
-  print " $repository/issues/$issue\n";
-}
-
-
 # find_repository_for_issue -- expand issue reference to full URL, or undef
 sub find_repository_for_issue($$$)
 {
@@ -383,18 +349,99 @@ sub find_repository_for_issue($$$)
 }
 
 
+# name_to_login -- return the github name for a name, otherwise return the name
+sub name_to_login($$)
+{
+  my ($self, $nick) = @_;
+
+  # TODO.
+  return 'bert-github' if fc($nick) eq fc('Bert');
+  return $nick;
+}
+
+
+# create_action_process -- process that creates an action item on GitHub
+sub create_action_process($$$$$$)
+{
+  my ($body, $self, $channel, $repository, $names, $text) = @_;
+  my (@names, $res, $content, $date, $due);
+
+  # Creating an action item is like creating an issue, but with
+  # assignees and a label "action".
+
+  $repository =~ s/^https:\/\/github.com\///;
+  @names = map($self->name_to_login($_), split(/ *, */, $names));
+
+  $date = new Date::Manip::Date;
+  if ($text =~ /^(.*?)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
+    $text = $1;
+  } else {
+    $date->parse("next week");	# Default to 1 week
+  }
+  $due = $date->printf("%e %b %Y");
+
+  $res = $self->{ua}->post(
+    "https://api.github.com/repos/$repository/issues",
+    Content => encode_json({title => $text, assignees => \@names,
+			    body => "due $due", labels => ['action']}));
+
+  print STDERR "Channel $channel new action \"$text\" in $repository -> ",
+      $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot create action. Forbidden.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot create action. Repository not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot create action. Repository is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot create action. Validation failed. (Invalid user for this repository?)\n";
+  } elsif ($res->code == 503) {
+    print "Cannot create action. Service unavailable.\n";
+  } elsif ($res->code != 201) {
+    print "Cannot create action. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    @names = ();
+    push @names, $_->{login} foreach @{$content->{assignees}};
+    print "Created -> action " . $content->{number} . " " .
+	$content->{title} . " (on " . join(', ', @names) . ") due $due " .
+	$content->{html_url} . "\n";
+  }
+}
+
+
+# create_action -- create a new action item
+sub create_action($$$)
+{
+  my ($self, $channel, $names, $text) = @_;
+
+  return "Sorry, I don't know what repository to use."
+      if !defined $self->{repos}->{$channel} ||
+      scalar @{$self->{repos}->{$channel}} == 0;
+
+  $self->forkit(
+    {run => \&create_action_process, channel => $channel,
+     arguments => [$self, $channel, $self->{repos}->{$channel}->[0], $names,
+       $text]});
+
+  return undef;			# The forked process will print a result
+}
+
+
 # create_issue_process -- process that creates an issue on GitHub
 sub create_issue_process($$$$)
 {
-  my ($body, $self, $repository, $text) = @_;
+  my ($body, $self, $channel, $repository, $text) = @_;
   my ($res, $content);
 
-  $repository =~ s/^https:\/\/github.com//;
+  $repository =~ s/^https:\/\/github.com\///;
   $res = $self->{ua}->post(
-    "https://api.github.com/repos$repository/issues",
+    "https://api.github.com/repos/$repository/issues",
     Content => encode_json({title => $text}));
 
-  print STDERR "Create issue \"$text\" in $repository -> ", $res->code, "\n";
+  print STDERR "Channel $channel new issue \"$text\" in $repository -> ",
+      $res->code, "\n";
 
   if ($res->code == 403) {
     print "Cannot create issue. Forbidden.\n";
@@ -427,16 +474,16 @@ sub create_issue($$$)
 
   $self->forkit(
     {run => \&create_issue_process, channel => $channel,
-     arguments => [$self, $self->{repos}->{$channel}->[0], $text]});
+     arguments => [$self, $channel, $self->{repos}->{$channel}->[0], $text]});
 
   return undef;			# The forked process will print a result
 }
 
 
 # close_issue_process -- process that closes an issue on GitHub
-sub close_issue_process($$$$)
+sub close_issue_process($$$$$)
 {
-  my ($body, $self, $repository, $text) = @_;
+  my ($body, $self, $channel, $repository, $text) = @_;
   my ($res, $content, $issuenumber);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
@@ -445,7 +492,8 @@ sub close_issue_process($$$$)
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'closed'}));
 
-  print STDERR "Close $repository#$issuenumber -> ", $res->code, "\n";
+  print STDERR "Channel $channel close $repository#$issuenumber -> ",
+      $res->code, "\n";
 
   if ($res->code == 403) {
     print "Cannot close issue $text. Forbidden.\n";
@@ -461,8 +509,14 @@ sub close_issue_process($$$$)
     print "Cannot close issue $text. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Closed -> issue " . $content->{number} . " " .
-	$content->{title} . " " . $content->{html_url} . "\n";
+    if (grep($_->{name} eq 'action', @{$content->{labels}})) {
+      print 'Closed -> action ', $content->{number}, ' ', $content->{title},
+	  ' (on ', join(', ', map($_->{login}, @{$content->{assignees}})),
+	  ') ', $content->{html_url}, "\n";
+    } else {
+      print "Closed -> issue " . $content->{number} . " " .
+	  $content->{title} . " " . $content->{html_url} . "\n";
+    }
   }
 }
 
@@ -478,7 +532,7 @@ sub close_issue($$$)
 
   $self->forkit(
     {run => \&close_issue_process, channel => $channel,
-     arguments => [$self, $repository, $text]});
+     arguments => [$self, $channel, $repository, $text]});
 
   return undef;			# The forked process will print a result
 }
@@ -487,7 +541,7 @@ sub close_issue($$$)
 # reopen_issue_process -- process that reopens an issue on GitHub
 sub reopen_issue_process($$$$)
 {
-  my ($body, $self, $repository, $text) = @_;
+  my ($body, $self, $channel, $repository, $text) = @_;
   my ($res, $content, $issuenumber);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
@@ -496,7 +550,8 @@ sub reopen_issue_process($$$$)
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'open'}));
 
-  print STDERR "Reopen $repository#$issuenumber -> ", $res->code, "\n";
+  print STDERR "Channel $channel reopen $repository#$issuenumber -> ",
+      $res->code, "\n";
 
   if ($res->code == 403) {
     print "Cannot reopen issue $text. Forbidden.\n";
@@ -512,8 +567,14 @@ sub reopen_issue_process($$$$)
     print "Cannot reopen issue $text. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Reopened -> issue " . $content->{number} . " " .
-	$content->{title} . " " . $content->{html_url} . "\n";
+    if (grep($_->{name} eq 'action', @{$content->{labels}})) {
+      print 'Reopened -> action ', $content->{number}, ' ', $content->{title},
+	  ' (on ', join(', ', map($_->{login}, @{$content->{assignees}})),
+	  ') ', $content->{body}, ' ', $content->{html_url}, "\n";
+    } else {
+      print 'Reopened -> issue ' . $content->{number} . ' ' .
+	  $content->{title} . ' ' . $content->{html_url} . "\n";
+    }
   }
 }
 
@@ -529,9 +590,61 @@ sub reopen_issue($$$)
 
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
-     arguments => [$self, $repository, $text]});
+     arguments => [$self, $channel, $repository, $text]});
 
   return undef;			# The forked process will print a result
+}
+
+
+# get_issue_summary_process -- try to retrieve info about an issue/pull request
+sub get_issue_summary_process($$$$)
+{
+  my ($body, $self, $channel, $repository, $issue) = @_;
+  my ($owner, $repo, $res, $ref);
+
+  # This is not a method, but a function that is called by forkit() to
+  # run as a background process. It prints text for the channel to
+  # STDOUT and log entries to STDERR.
+
+  if (!defined $self->{ua}) {
+    print "-> \#$issue $repository/issues/$issue\n";
+    return;
+  }
+
+  ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
+
+  $res = $self->{ua}->get(
+    "https://api.github.com/repos/$owner/$repo/issues/$issue",
+    'Accept' => 'application/vnd.github.v3+json');
+
+  print STDERR "Channel $channel info $repository#$issue -> ", $res->code, "\n";
+
+  if ($res->code == 404) {
+    print "-> Issue $issue [not found] $repository/issues/$issue\n";
+    return;
+  } elsif ($res->code == 410) {
+    print "-> Issue $issue [gone] $repository/issues/$issue\n";
+    return;
+  } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
+    print STDERR "  ", $res->decoded_content, "\n";
+    print "-> \#$issue $repository/issues/$issue\n";
+    return;
+  }
+
+  $ref = decode_json($res->decoded_content);
+  if (grep($_->{name} eq 'action', @{$ref->{labels}})) {
+    print "-> Action $issue ", ($ref->{state} eq 'closed' ? '[closed] ' : ''),
+	$ref->{'title'},
+	' (on ', join(', ', map($_->{login}, @{$ref->{assignees}})), ') ',
+	$ref->{body}, " $repository/issues/$issue\n";
+  } else {
+    print '-> ',
+	($ref->{pull_request}?'Pull Request':'Issue'), " $issue ",
+	($ref->{'state'} eq 'closed' ? '[closed] ' : ''),
+	$ref->{'title'}, ' (', $ref->{'user'}->{'login'}, ')',
+	join(', ', map($_->{'name'}, @{$ref->{'labels'}})),
+	" $repository/issues/$issue\n";
+  }
 }
 
 
@@ -558,14 +671,14 @@ sub maybe_expand_references($$$$)
 	$self->log("Channel $channel, cannot infer a repository for $ref");
 	next;
       };
-      $self->log("Channel $channel, $repository/issues/$issue");
+      # $self->log("Channel $channel $repository/issues/$issue");
       $self->forkit({run => \&get_issue_summary_process, channel => $channel,
-		     arguments => [$self, $repository, $issue]});
+		     arguments => [$self, $channel, $repository, $issue]});
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
-      $self->log("channel $channel, https://github.com/$name");
+      $self->log("Channel $channel https://github.com/$name");
       $response .= "-> \@$name https://github.com/$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
@@ -739,6 +852,10 @@ sub said($$)
   return $self->reopen_issue($channel, $1)
       if $text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
          $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i;
+
+  return $self->create_action($channel, $1, $2)
+      if $text =~ /^ *action +([^:]+?) *: *(.*?) *$/i ||
+         $text =~ /^ *action *: *(.*?) +to +(.*?) *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
