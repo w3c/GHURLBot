@@ -596,6 +596,50 @@ sub reopen_issue($$$)
 }
 
 
+# account_info_process -- process that looks up the GitHub account we are using
+sub account_info_process($$$)
+{
+  my ($body, $self, $channel) = @_;
+  my ($res, $content, $issuenumber);
+
+  $res = $self->{ua}->get("https://api.github.com/user",
+    'Accept' => 'application/vnd.github.v3+json');
+
+  print STDERR "Channel $channel user account -> ", $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot read account. Forbidden.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot read account. Account not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot read account. Account is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot read account. Validation failed.\n";
+  } elsif ($res->code == 503) {
+    print "Cannot read account. Service unavailable.\n";
+  } elsif ($res->code != 200) {
+    print "Cannot read account. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    print "I am using GitHub login ", $content->{login}, "\n";
+  }
+}
+
+
+# account -- get info about the GitHub account, if any, that the bot runs under
+sub account_info($$)
+{
+  my ($self, $channel) = @_;
+
+  return "I am not using a GitHub account." if !$self->{github_api_token};
+
+  $self->forkit(
+    {run => \&account_info_process, channel => $channel,
+     arguments => [$self, $channel]});
+  return undef;		     # The forked process willl print a result
+}
+
+
 # get_issue_summary_process -- try to retrieve info about an issue/pull request
 sub get_issue_summary_process($$$$)
 {
@@ -797,6 +841,7 @@ sub said($$)
   my $channel = $info->{channel};	# "#channel" or "msg"
   my $me = $self->nick();		# Our own name
   my $addressed = $info->{address};	# Defined if we're personally addressed
+  my $do_issues = !defined $self->{suspend_issues}->{$channel};
 
   return if $channel eq 'msg';		# We do not react to private messages
 
@@ -843,19 +888,26 @@ sub said($$)
       $text =~ /^ *(?:set +)?names *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
 
   return $self->create_issue($channel, $1)
-      if $text =~ /^ *issue *: *(.*)$/i;
+      if ($addressed || $do_issues) && $text =~ /^ *issue *: *(.*)$/i;
 
   return $self->close_issue($channel, $1)
-      if $text =~ /^ *close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i;
+      if ($addressed || $do_issues) &&
+      ($text =~ /^ *close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+	$text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i);
 
   return $self->reopen_issue($channel, $1)
-      if $text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i;
+      if ($addressed || $do_issues) &&
+      ($text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i);
 
   return $self->create_action($channel, $1, $2)
-      if $text =~ /^ *action +([^:]+?) *: *(.*?) *$/i ||
-         $text =~ /^ *action *: *(.*?) +to +(.*?) *$/i;
+      if ($addressed || $do_issues) &&
+      ($text =~ /^ *action +([^:]+?) *: *(.*?) *$/i ||
+	$text =~ /^ *action *: *(.*?) +to +(.*?) *$/i);
+
+  return $self->account_info($channel)
+      if $addressed &&
+      $text =~ /^ *(?:who +are +you|account|user|login) *\?? *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
@@ -1045,7 +1097,7 @@ and it updates that file whenever it joins or leaves a channel.
 With this option, B<ghurlbot> will not only print a link to each issue
 or pull request, but will also try to print a summary of the issue or
 pull request. For that it needs to query GitHub. It does that by
-sending HTTP requests to GitHub's GraphQL server, which requires an
+sending HTTP requests to GitHub's API server, which requires an
 access token provided by GitHub. See L<Creating a personal access
 token|https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token>.
 

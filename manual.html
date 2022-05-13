@@ -7,14 +7,118 @@
 	href="https://www.w3.org/Guide/guide2006.css">
   <link rel="shortcut icon"
 	href="https://www.w3.org/Icons/WWW/Literature.gif">
-
+  <style>
+    table {width: 70%; table-layout: fixed; border-collapse: collapse;
+	   margin-left: auto; margin-right: auto; background: #eee}
+    th, td {border-bottom: 1px solid #999; padding: 0.5em}
+    td code {color: black; background: none}
+  </style>
 
   <h1>Ghurlbot manual</h1>
 
-  <p>Ghurlbot is an IRC bot that gives the full URLs for GitHub issues
-    and users. It typically has the nick name ‘ghurlbot’ on IRC.</p>
+  <p>Ghurlbot is an IRC bot that looks up GitHub issues, creates new
+    issues and action items, or closes them. It typically has the
+    nickname ‘ghurlbot’ on IRC.</p>
 
-  <h2>IRC command to link to an issue: #</h2>
+  <h2>Command quick reference</h2>
+
+  <table>
+    <thead>
+      <tr><th>Command</th> <th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+	<td class=command><code>w3c/aria#15<br>
+	    aria#15<br>
+	    #15</code></td>
+	<td><a href="#info">Look up an issue, pull request or
+	    action</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>@joe</code></td>
+	<td><a href="#name">Link to a user profile</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, use w3c/scribe2</code></td>
+	<td><a href="#repo">Specify a repository to use</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, drop w3c/scribe2</code></td>
+	<td><a href="#remove">Remove a repository from ghurlbot's list</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>Issue: Foo is undefined</code></td>
+	<td><a href="#create-issue">Create a new issue</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>action Eve: send mail<br>
+	action: Eve to send mail</code></td>
+	<td><a href="#create-action">Create a new action</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>action Eve: send mail - due in 2 weeks<br>
+	action Eve: send mail due 3 June</code></td>
+	<td><a href="#create-action">Create a new action with a due
+	date</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>close #15</code></td>
+	<td><a href="#close">Close an issue or action</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>reopen aria/#15</code></td>
+	<td><a href="#reopen">Reopen an issue or action</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>/invite ghurlbot</code></td>
+	<td><a href="#invite">Invite ghurlbot to the current
+	channel</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, bye</code></td>
+	<td><a href="#invite">Dismiss ghurlbot from the current
+	channel</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, off<br>
+	ghurlbot, on</code></td>
+	<td><a href="#suspend">Stop ghurlbot from processing issues,
+	actions and names; or turn it back on</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, names off<br>
+	ghurlbot, names on</code></td>
+	<td><a href="#suspend">Stop ghurlbot from processing names; or
+	turn it back on</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, issues off<br>
+	ghurlbot, issues on</code></td>
+	<td><a href="#suspend">Stop ghurlbot from processing issues
+	and actions; or turn it back on</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, delay 20</code></td>
+	<td><a href="#delay">Set the number of lines before ghurlbot
+	looks up the same issue or name again</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, status</code></td>
+	<td><a href="#status">Get information about the current delay
+	and repositories, and whether ghurlbot is turned off</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, account</code></td>
+	<td><a href="#account">Get the name of the GitHub account that
+	ghurlbot uses</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, help</code></td>
+	<td><a href="#help">Provides a link to the manual</a></td>
+      </tr>
+  </table>
+
+  <h2 id=info>IRC command to link to an issue</h2>
 
   <p>When somebody types something that looks like a repository name
     followed by <code>#</code> and an issue number, ghurlbot responds
@@ -34,18 +138,22 @@
   <pre class=command>&lt;joe&gt; Next topic: w3c/scribe2#15
 &lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
 
-  <p>If you tell ghurlbot what repository (or repositories) you are
-    discussing (see <a href="#repo">below</a>), you can abbreviate the
-    repository name, or even omit it:</p>
+  <p>Ghurlbot fails to look up an issue if it does not have access to
+    a GitHub account or if the issue is in a private repository,
+    see <a href="#account" >‘GitHub account’</a>. (Ghurlbot may also
+    fail due to network problems.)</p>
+
+  <p>If you have told ghurlbot what repositories you are discussing
+    (see <a href="#repo">below</a>), you can abbreviate the repository
+    name, or even omit it:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: #15
 &lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
 
   <p>If you have told ghurlbot to look at more than one repository,
-    the above will only look in the repository that was added to
-    ghurlbot last. To look up an issue in one of the other
-    repositories, prefix the number with the name of the
-    repository:</p>
+    the above will only look in the repository that was added last. To
+    look up an issue in one of the other repositories, prefix the
+    number with the name of the repository:</p>
 
   <pre class=command>&lt;joe&lgt; Let's talk about aria#13.</pre>
 
@@ -59,17 +167,17 @@
 
   <pre class=command>&lt;joe&gt; w3c/a#13</pre>
 
-  <p>Only if none of the repositories that ghurlbot knows starts with
+  <p>Only if none of the repositories that ghurlbot knows start with
     those letters, ghurlbot assumes that the given name represents the
     full name of a repository.</p>
 
-  <p>You can omit the owner if it is the same as the repository at the
-    top of ghurlbot's list:</p>
+  <p>In that case you can omit the owner if it is the same as the
+    repository at the top of ghurlbot's list:</p>
 
   <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
 &lt;ghurlbot&gt; -> Issue 3 [closed] Errors replacing URLs (nigelmegitt) https://github.com/w3c/scribe2/issues/3</pre>
 
-  <h2>IRC command to link to a user name: @</h2>
+  <h2 id=name>IRC command to link to a user name</h2>
 
   <p>When somebody types <code>@</code> plus a name, it responds with
     the full URL to that person or team. E.g.:</p>
@@ -77,15 +185,15 @@
   <pre class=command>&lt;joe&gt; That comment came from @aliciag
 &lt;ghurlbot&gt; -&gt; @aliciag https://github.com/aliciag</pre>
 
-  <p>ghurlbot only expands a reference that is on in its own, not
-    one that seems to be attached to something else, such as a URL
-    (e.g., ‘example.com/slides#13’). If ghurlbot does not seem
+  <p>ghurlbot only expands a reference that is on in its own, not one
+    that seems to be attached to something else, such as an email
+    address (e.g., ‘contact@aliciag.com’). If ghurlbot does not seem
     to recognize a reference, try to put spaces around it.</p>
 
   <h2 id=repo>Specifying the GitHub repository</h2>
 
   <p>To be able to refer to issues and pull requests with the
-    abbreviated syntax, you nee to tell what repository is being
+    abbreviated syntax, you need to say what repository is being
     discussed on this channel:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, discussing https://github.com/xxx/yyy</pre>
@@ -112,7 +220,7 @@
     dismissed from a channel. When it is later asked to rejoin, it
     continues using the same repositories.</p>
 
-  <h2>Removing repositories</h2>
+  <h2 id=remove>Stop using a repository</h2>
 
   <p>To remove a repository from the list that ghurlbot knows:</p>
 
@@ -122,10 +230,78 @@
     say <code>forget</code>, <code>remove</code>, <code>don't
     use</code> or <code>do not use</code>.</p>
 
-  <h2>Suspending the expansion of references</h2>
+  <h2 id=create-issue>Creating an issue</h2>
 
-  <p>You can turn the bot off temporarily without dismissing it from
-    the channel and turn it back on again:</p>
+  <p>You can create new issues by starting a line
+    with <code>issue:</code>:</p>
+
+  <pre class=command>&lt;joe&gt; Issue: is the default 1 or 0?</pre>
+
+  <p>Case does not matter, ‘ISSUE’, ‘issue’ or ‘iSSue’ works also. The
+    issue will be created in the repository that is at the top of
+    ghurlbot's list. To create an issue in another repository, you
+    need to move it to the top first.</p>
+
+  <h2 id=create-action>Creating an action</h2>
+
+  <p>You can create an action item for somebody with either of the
+    following two syntaxes:</p>
+
+  <pre class=command>&lt;joe&gt; action alex: review chapter 1
+&lt;joe&gt; action: alex to review chapter 1</pre>
+
+  <p>The issue will be created in the repository that is at the top of
+    ghurlbot's list.</p>
+
+  <p>An action is in fact a special kind of issue: in addition to a
+    title, it also a label (‘action’), a due date and a person
+    assigned to it.</p>
+
+  <p>By default, an action gets a due date in one week, but you can
+    explicitly set a date:</p>
+
+  <pre class=command>&lt;joe&gt; action alex: review chapter 1 - due 1 June</pre>
+
+  <p>Many different ways of describing a date are supported, including
+    things like ‘in 2 weeks’, ‘tomorrow’ and ‘next Tuesday’.</p>
+
+  <p>[To do: the action is assigned to the person with the given login
+    on GitHub. A way to register aliases for people has not yet been
+    added.]</p>
+
+  <h2 id=close>Closing an issue or action</h2>
+
+  <p>You can close an issue or action by starting a line
+    with <code>close</code>, followed by an issue number, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; close aria#15
+&lt;joe&gt; close #13
+&lt;joe&gt; close w3c/aria#17</pre>
+
+  <p>Case does not matter, ‘CLOSE’, ‘Close’ or ‘ClosE’ works also. The
+    issue number can include the full name of the repository or an
+    abbreviation, see <a href="#info" >‘IRC command to link to an
+    issue: #’</a>.
+
+  <h2 id=reopen>Reopening an issue or action</h2>
+
+  <p>You can reopen an issue or action by starting a line
+    with <code>reopen</code>, followed by an issue number, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; reopen #15</pre>
+
+  <h2 id=invite>Inviting and dismissing the bot</h2>
+
+  <p>You can invite the bot to a channel and dismiss it:</p>
+
+  <pre class=command>&lt;joe&gt; /invite ghurlbot
+&lt;joe&gt; ghurlbot, bye</pre>
+
+  <h2 id=suspend>Suspending the bot</h2>
+
+  <p>You can tell the bot to stop processing issues, actions and names
+    without dismissing it from the channel; and turn it back on
+    again:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, off
 &lt;joe&gt; ghurlbot, on</pre>
@@ -140,35 +316,27 @@
     or <code>false</code>. And instead of <code>names</code> you can
     also use <code>persons</code> or <code>teams</code>.</p>
 
-  <p>To ask it to stop expanding references to issues and pull requests,
-    the command is:</p>
+  <p>To ask it to stop processing just issues, pull requests and
+    actions, the command is:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, set issues to off
 &lt;joe&gt; ghurlbot, issues off
 &lt;joe&gt; ghurlbot, issues = off</pre>
 
-  <p>To turn the expansion of references back on,
-    replace <code>off</code> by <code>on</code>, <code>yes</code>
-    or <code>true</code>.</p>
+  <p>To turn processing back on, replace <code>off</code>
+    by <code>on</code>, <code>yes</code> or <code>true</code>.</p>
 
-  <p>When you address GHURLBot directly, it will respond even if
-    expansion of references is suspended:</p>
+  <p>When you address GHURLBot directly, it will always respond even if
+    it is turned off otherwise:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, #13 and #14?
 &lt;ghurlbot&gt; -&gt; #13 https://github.com/xxx/yyy/issues/13
 &lt;ghurlbot&gt; -&gt; #14 https://github.com/xxx/yyy/issues/14</pre>
 
-  <h2>Inviting and dismissing the bot</h2>
+  <h2 id=delay>Reducing the number of responses from the bot</h2>
 
-  <p>You can invite the bot to a channel and dismiss it:</p>
-
-  <pre class=command>&lt;joe&gt; /invite ghurlbot
-&lt;joe&gt; ghurlbot, bye</pre>
-
-  <h2>Reducing the number of responses from the bot</h2>
-
-  <p>To avoid flooding the IRC conversation with links, the bot will
-    not expand a reference if it has already expanded the same
+  <p>To avoid flooding the IRC conversation, the bot will not react to
+    an issue number or name if it has already looked up the same
     reference recently. By default, it waits until 15 lines have been
     typed into the IRC channel before expanding the same reference
     again, but that can be configured. All of the following set the
@@ -182,19 +350,41 @@
     the channel. When you address GHURLBot directly, it will
     respond even if it gave the same URL recently.</p>
 
-  <h2>Inquiring about the current status</h2>
+  <h2 id=status>Inquiring about the current status</h2>
 
-  <p>You can ask what repository it is currently using:</p>
+  <p>You can ask what repository ghurlbot is currently using:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, status?
 &lt;ghurlbot&gt; Delay is 15 lines, issues are on, names are on and I'm using https://github.com/xxx/yyy</pre>
 
-  <h2>Getting help</h2>
+  <h2 id=account>GitHub account</h2>
+
+  <p>Ghurlbot can be started with or without (the access codes for) a
+    GitHub account. Without an account, it will expand issue numbers
+    to URLs, but it cannot look up issue summaries and cannot create
+    any new issues or actions.</p>
+
+  <p>To find out what account ghurlbot was started with, use this
+    command:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, who are you?
+&lt;ghurlbot&gt; I am using GitHub account joe-bot</pre>
+
+  <p>Instead of <code>who are you</code>, you can also
+    say <code>account</code>, <code>user</code> or <code>login</code>.
+
+  <p>If ghurlbot, despite having access to a GitHub account, still
+    fails to look up issues or create new ones, it may be that the
+    repository is private. In that case the owners of repository will
+    have to add ghurlbot's account to the list of accepted
+    collaborators.</p>
+
+  <h2 id=help>Getting help</h2>
 
   <p>The bot also reacts to <code>help</code> with some information
     about itself and a link to this manual.</p>
 
-  <h2>Source</h2>
+  <h2 id=source>Source</h2>
 
   <p>GHURLBot is written in Perl.
     The <a href="https://github.com/w3c/GHURLBot" >source</a> is on
@@ -204,4 +394,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Thu May  5 22:53:36 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Fri May 13 23:17:48 2022 UTC $ by $Author: Bert Bos $</address>
