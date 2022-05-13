@@ -43,7 +43,7 @@ use LWP::ConnCache;
 use JSON::PP;
 # use Date::Parse;
 use Date::Manip::Date;
-# use POSIX qw(strftime);
+use POSIX qw(strftime);
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
@@ -948,6 +948,22 @@ sub nickname_in_use_error($$)
     $self->connect_server();
   }
   return;
+}
+
+
+# log -- print a message to STDERR, but only if -v (verbose) was specified
+sub log
+{
+  my ($self, @messages) = @_;
+
+  if ($self->{'verbose'}) {
+    # Prefix all log lines with the current time, unless the line
+    # already starts with a time.
+    #
+    my $now = strftime "%Y-%m-%dT%H:%M:%SZ", gmtime;
+    $self->SUPER::log(
+      map /^\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ/ ? $_ : "$now $_", @messages);
+  }
 }
 
 
