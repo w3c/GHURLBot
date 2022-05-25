@@ -125,7 +125,7 @@
     with the full URL of that issue or pull request:</p>
 
   <pre class=command>&lt;joe&gt; Let's talk about foo/bar#13.
-&lt;ghurlbot&gt; -> 13 https://github.com/foo/bar/issues/13</pre>
+&lt;ghurlbot&gt; https://github.com/foo/bar/issues/13 -&gt; #13</pre>
 
   <p>(The <code>-&gt;</code> is understood
     by <a href="https://w3c.github.io/scribe2/scribedoc.html"
@@ -136,7 +136,7 @@
     succeeds, it not only shows a URL, but also a summary, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: w3c/scribe2#15
-&lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
+&lt;ghurlbot&gt; https://github.com/w3c/scribe2/issues/15 -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston)</pre>
 
   <p>Ghurlbot fails to look up an issue if it does not have access to
     a GitHub account or if the issue is in a private repository,
@@ -148,7 +148,7 @@
     name, or even omit it:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: #15
-&lt;ghurlbot&gt; -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
+&lt;ghurlbot&gt; https://github.com/w3c/scribe2/issues/15 -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston)</pre>
 
   <p>If you have told ghurlbot to look at more than one repository,
     the above will only look in the repository that was added last. To
@@ -175,7 +175,7 @@
     repository at the top of ghurlbot's list:</p>
 
   <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
-&lt;ghurlbot&gt; -> Issue 3 [closed] Errors replacing URLs (nigelmegitt) https://github.com/w3c/scribe2/issues/3</pre>
+&lt;ghurlbot&gt; https://github.com/w3c/scribe2/issues/3 -> Issue 3 [closed] Errors replacing URLs (nigelmegitt)</pre>
 
   <h2 id=name>IRC command to link to a user name</h2>
 
@@ -183,7 +183,7 @@
     the full URL to that person or team. E.g.:</p>
 
   <pre class=command>&lt;joe&gt; That comment came from @aliciag
-&lt;ghurlbot&gt; -&gt; @aliciag https://github.com/aliciag</pre>
+&lt;ghurlbot&gt; https://github.com/aliciag -&gt; @aliciag</pre>
 
   <p>ghurlbot only expands a reference that is on in its own, not one
     that seems to be attached to something else, such as an email
@@ -250,11 +250,14 @@
   <pre class=command>&lt;joe&gt; action alex: review chapter 1
 &lt;joe&gt; action: alex to review chapter 1</pre>
 
-  <p>The issue will be created in the repository that is at the top of
+  <p>The action will be created in the repository that is at the top of
     ghurlbot's list.</p>
 
+  <p>You can only assign an action to somebody who is associated with
+    that repository (an owner or a collaborator).</p>
+
   <p>An action is in fact a special kind of issue: in addition to a
-    title, it also a label (‘action’), a due date and a person
+    title, it also has a label (‘action’), a due date and a person
     assigned to it.</p>
 
   <p>By default, an action gets a due date in one week, but you can
@@ -330,8 +333,8 @@
     it is turned off otherwise:</p>
 
   <pre class=command>&lt;joe&gt; ghurlbot, #13 and #14?
-&lt;ghurlbot&gt; -&gt; #13 https://github.com/xxx/yyy/issues/13
-&lt;ghurlbot&gt; -&gt; #14 https://github.com/xxx/yyy/issues/14</pre>
+&lt;ghurlbot&gt; https://github.com/xxx/yyy/issues/13 -&gt; #13
+&lt;ghurlbot&gt; https://github.com/xxx/yyy/issues/14 -&gt; #14</pre>
 
   <h2 id=delay>Reducing the number of responses from the bot</h2>
 
@@ -375,8 +378,8 @@
 
   <p>If ghurlbot, despite having access to a GitHub account, still
     fails to look up issues or create new ones, it may be that the
-    repository is private. In that case the owners of repository will
-    have to add ghurlbot's account to the list of accepted
+    repository is private. In that case the owners of the repository
+    will have to add ghurlbot's account to the list of accepted
     collaborators.</p>
 
   <h2 id=help>Getting help</h2>
