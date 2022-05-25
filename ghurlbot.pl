@@ -404,9 +404,8 @@ sub create_action_process($$$$$$)
     $content = decode_json($res->decoded_content);
     @names = ();
     push @names, $_->{login} foreach @{$content->{assignees}};
-    print "Created -> action " . $content->{number} . " " .
-	$content->{title} . " (on " . join(', ', @names) . ") due $due " .
-	$content->{html_url} . "\n";
+    print "Created $content->{html_url} -> action $content->{number}",
+	" $content->{title} (on ", join(', ', @names), ") due $due\n";
   }
 }
 
@@ -457,8 +456,8 @@ sub create_issue_process($$$$)
     print "Cannot create issue. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Created -> issue " . $content->{number} . " " .
-	$content->{title} . " " . $content->{html_url} . "\n";
+    print "Created $content->{html_url} -> issue $content->{number}",
+	" $content->{title}\n";
   }
 }
 
@@ -510,12 +509,12 @@ sub close_issue_process($$$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print 'Closed -> action ', $content->{number}, ' ', $content->{title},
-	  ' (on ', join(', ', map($_->{login}, @{$content->{assignees}})),
-	  ') ', $content->{html_url}, "\n";
+      print "Closed $content->{html_url} -> action $content->{number}",
+	  " $content->{title} (on ",
+	  join(', ', map($_->{login}, @{$content->{assignees}})), ")\n";
     } else {
-      print "Closed -> issue " . $content->{number} . " " .
-	  $content->{title} . " " . $content->{html_url} . "\n";
+      print "Closed $content->{html_url} -> issue $content->{number} ".
+	  "$content->{title}\n";
     }
   }
 }
@@ -542,7 +541,7 @@ sub close_issue($$$)
 sub reopen_issue_process($$$$)
 {
   my ($body, $self, $channel, $repository, $text) = @_;
-  my ($res, $content, $issuenumber);
+  my ($res, $content, $issuenumber, $comment);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
   $repository =~ s/^https:\/\/github.com\///;
@@ -568,12 +567,14 @@ sub reopen_issue_process($$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print 'Reopened -> action ', $content->{number}, ' ', $content->{title},
-	  ' (on ', join(', ', map($_->{login}, @{$content->{assignees}})),
-	  ') ', $content->{body}, ' ', $content->{html_url}, "\n";
+      $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $content->{body} // '';
+      print "Reopened $content->{html_url} -> action $content->{number} ",
+	  "$content->{title} (on ",
+	  join(', ', map($_->{login}, @{$content->{assignees}})),
+	  ")$comment\n";
     } else {
-      print 'Reopened -> issue ' . $content->{number} . ' ' .
-	  $content->{title} . ' ' . $content->{html_url} . "\n";
+      print "Reopened $content->{html_url} -> issue $content->{number} ",
+	  "$content->{title}\n";
     }
   }
 }
@@ -644,14 +645,14 @@ sub account_info($$)
 sub get_issue_summary_process($$$$)
 {
   my ($body, $self, $channel, $repository, $issue) = @_;
-  my ($owner, $repo, $res, $ref);
+  my ($owner, $repo, $res, $ref, $comment);
 
   # This is not a method, but a function that is called by forkit() to
   # run as a background process. It prints text for the channel to
   # STDOUT and log entries to STDERR.
 
   if (!defined $self->{ua}) {
-    print "-> \#$issue $repository/issues/$issue\n";
+    print "$repository/issues/$issue -> \#$issue\n";
     return;
   }
 
@@ -661,33 +662,32 @@ sub get_issue_summary_process($$$$)
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
     'Accept' => 'application/vnd.github.v3+json');
 
-  print STDERR "Channel $channel info $repository#$issue -> ", $res->code, "\n";
+  print STDERR "Channel $channel info $repository#$issue -> ",$res->code,"\n";
 
   if ($res->code == 404) {
-    print "-> Issue $issue [not found] $repository/issues/$issue\n";
+    print "$repository/issues/$issue -> Issue $issue [not found]\n";
     return;
   } elsif ($res->code == 410) {
-    print "-> Issue $issue [gone] $repository/issues/$issue\n";
+    print "$repository/issues/$issue -> Issue $issue [gone]\n";
     return;
   } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
     print STDERR "  ", $res->decoded_content, "\n";
-    print "-> \#$issue $repository/issues/$issue\n";
+    print "$repository/issues/$issue -> \#$issue\n";
     return;
   }
 
   $ref = decode_json($res->decoded_content);
   if (grep($_->{name} eq 'action', @{$ref->{labels}})) {
-    print "-> Action $issue ", ($ref->{state} eq 'closed' ? '[closed] ' : ''),
-	$ref->{'title'},
-	' (on ', join(', ', map($_->{login}, @{$ref->{assignees}})), ') ',
-	$ref->{body}, " $repository/issues/$issue\n";
+    $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $ref->{body} // '';
+    print "$repository/issues/$issue -> Action $issue ",
+	($ref->{state} eq 'closed' ? '[closed] ' : ''),	"$ref->{title} (on ",
+	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
   } else {
-    print '-> ',
-	($ref->{pull_request}?'Pull Request':'Issue'), " $issue ",
-	($ref->{'state'} eq 'closed' ? '[closed] ' : ''),
-	$ref->{'title'}, ' (', $ref->{'user'}->{'login'}, ')',
-	join(', ', map($_->{'name'}, @{$ref->{'labels'}})),
-	" $repository/issues/$issue\n";
+    print "$repository/issues/$issue -> ",
+	($ref->{pull_request} ? 'Pull Request' : 'Issue'), " $issue ",
+	($ref->{state} eq 'closed' ? '[closed] ' : ''),
+	"$ref->{title} ($ref->{user}->{login})",
+	join(',', map(" $_->{name}", @{$ref->{labels}})), "\n";
   }
 }
 
@@ -705,7 +705,7 @@ sub maybe_expand_references($$$$)
   $response = '';
 
   # Look for #number, prefix#number and @name.
-  while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@(\w+))(?=\W|$)/g) {
+  while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
@@ -722,8 +722,8 @@ sub maybe_expand_references($$$$)
 
     } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
-      $self->log("Channel $channel https://github.com/$name");
-      $response .= "-> \@$name https://github.com/$name\n";
+      $self->log("Channel $channel name https://github.com/$name");
+      $response .= "https://github.com/$name -> \@$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } else {
