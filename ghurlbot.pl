@@ -44,6 +44,7 @@ use JSON::PP;
 # use Date::Parse;
 use Date::Manip::Date;
 use POSIX qw(strftime);
+use Net::Netrc;
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
@@ -967,6 +968,17 @@ sub log
 }
 
 
+# read_netrc -- find login & password for a host and (optional) login in .netrc
+sub read_netrc($;$)
+{
+  my ($host, $login) = @_;
+
+  my $machine = Net::Netrc->lookup($host, $login);
+  return ($machine->login, $machine->password) if defined $machine;
+  return (undef, undef);
+}
+
+
 # Main body
 
 my (%opts, $ssl, $proto, $user, $password, $host, $port, %passwords, $channel);
@@ -987,8 +999,20 @@ $port //= $ssl ? 6697 : 6667;
 $channel =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg if defined $channel;
 $channel = '#' . $channel if defined $channel && $channel !~ /^[#&]/;
 
-# If there was a ":" after the user but an empty password, prompt for it.
-if (defined $password && $password eq '') {
+# If there was no username, try to find one in ~/.netrc
+if (!defined $user) {
+  my ($u, $p) = read_netrc($host);
+  ($user, $password) = ($u, $p) if defined $u;
+}
+
+# If there was a username, but no password, try to find one in ~/.netrc
+if (defined $user && !defined $password) {
+  my ($u, $p) = read_netrc($host, $user);
+  $password = $p if defined $p;
+}
+
+# If there was a username, but still no password, prompt for it.
+if (defined $user && !defined $password) {
   print "IRC password for user \"$user\": ";
   ReadMode('noecho');
   $password = ReadLine(0);
