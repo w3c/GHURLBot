@@ -73,7 +73,7 @@ sub init($)
     $self->{ua}->conn_cache(LWP::ConnCache->new);
     $self->{ua}->env_proxy;
     $self->{ua}->default_header(
-      'Authorization' => 'bearer ' . $self->{github_api_token});
+      'Authorization' => 'token ' . $self->{github_api_token});
   }
 
   $errmsg = $self->read_rejoin_list() and die "$errmsg\n";
