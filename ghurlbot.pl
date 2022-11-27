@@ -13,6 +13,13 @@
 #
 # TODO: Commands to register mappings of names to GitHub login names.
 #
+# TODO: Search for issues in a repository by label?
+#
+# TODO: Add a permission system to limit who can create, close or
+# reopen issues? (Maybe people on IRC can somehow prove to ghurlbot
+# that they have a GitHub account and maybe ghurlbot can find out if
+# that account has the right to close an issue?)
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
