@@ -988,7 +988,7 @@ sub read_netrc($;$)
 
 # Main body
 
-my (%opts, $ssl, $proto, $user, $password, $host, $port, %passwords, $channel);
+my (%opts, $ssl, $proto, $user, $password, $host, $port, $channel);
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 getopts('m:n:N:r:t:v', \%opts) or die "Try --help\n";
