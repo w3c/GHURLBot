@@ -57,6 +57,12 @@ use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.1';
 use constant DEFAULT_DELAY => 15;
 
+# GitHub limits requests to 5000 per hour per authenticated app (and
+# will return 403 if the limit is exceeded). We impose an extra limit
+# of 100 changes to a given repository in 10 minutes.
+use constant MAXRATE => 100;
+use constant RATEPERIOD => 10;
+
 
 # init -- initialize some parameters
 sub init($)
@@ -86,6 +92,7 @@ sub init($)
   $errmsg = $self->read_rejoin_list() and die "$errmsg\n";
   $errmsg = $self->read_mapfile() and die "$errmsg\n";
 
+  $self->log("Connecting...");
   return 1;
 }
 
@@ -143,12 +150,12 @@ sub read_mapfile($)
     open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
     while (<$fh>) {
       # The mapfile is a tab-separated file with four columns:
-      # channel name, repository URL, delay, what
-      # where what contains zero, one or both of the words "issues"
+      # <channel name> <repository URL> <delay> <what>
+      # where <what> contains zero, one or both of the words "issues"
       # and "names", to indicate that issues and/or names are to be
       # expanded on that channel. There may be multiple lines for the
       # same channel. The repository is added to the list for that
-      # channel. Only the last delay and what for a channel are used.
+      # channel. Only the last <delay> and <what> for a channel are used.
       my ($channel, $repo, $delay, $what) =
 	  $_ =~ /^([^\t]+)\t([^\t]+)\t([0-9]+)\t([^\t]*)\n?$/
 	  or return "$self->{mapfile}: wrong syntax";
@@ -368,6 +375,35 @@ sub name_to_login($$)
 }
 
 
+# check_and_update_rate -- false if the rate is already too high, or update it
+sub check_and_update_rate($$)
+{
+  my ($self, $repository) = @_;
+  my $now = time;
+
+  if (($self->{ratestart}->{$repository} // 0) < $now - 60 * RATEPERIOD) {
+    # No rate period for this repository started, or it started more
+    # than RATEPERIOD minutes ago. Start a new period, count one
+    # action, and return OK.
+    $self->{ratestart}->{$repository} = $now;
+    $self->{rate}->{$repository} = 1;
+    return 1;
+  } elsif (($self->{rate}->{$repository} // 0) < MAXRATE) {
+    # The current rate period started less than RATEPERIOD minutes
+    # ago, but we have done less than MAXRATE actions in this period.
+    # Increase the number of actions by one and return OK.
+    $self->{rate}->{$repository}++;
+    return 1;
+  } else {
+    # The current rate period started less than RATEPERIOD minutes ago
+    # and we have already done MAXRATE actions in this period. So
+    # return FAIL.
+    $self->log("Rate limit reached for $repository");
+    return 0;
+  }
+}
+
+
 # create_action_process -- process that creates an action item on GitHub
 sub create_action_process($$$$$$)
 {
@@ -398,6 +434,8 @@ sub create_action_process($$$$$$)
 
   if ($res->code == 403) {
     print "Cannot create action. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot create action. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot create action. Repository not found.\n";
   } elsif ($res->code == 410) {
@@ -422,15 +460,18 @@ sub create_action_process($$$$$$)
 sub create_action($$$)
 {
   my ($self, $channel, $names, $text) = @_;
+  my $repository;
 
-  return "Sorry, I don't know what repository to use."
-      if !defined $self->{repos}->{$channel} ||
-      scalar @{$self->{repos}->{$channel}} == 0;
+  $repository = $self->{repos}->{$channel}->[0] or
+      return "Sorry, I don't know what repository to use.";
+
+  $self->check_and_update_rate($repository) or
+      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
+      " times in ".RATEPERIOD." minutes. Please, try again later.";
 
   $self->forkit(
     {run => \&create_action_process, channel => $channel,
-     arguments => [$self, $channel, $self->{repos}->{$channel}->[0], $names,
-       $text]});
+     arguments => [$self, $channel, $repository, $names, $text]});
 
   return undef;			# The forked process will print a result
 }
@@ -452,6 +493,8 @@ sub create_issue_process($$$$)
 
   if ($res->code == 403) {
     print "Cannot create issue. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot create issue. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot create issue. Repository not found.\n";
   } elsif ($res->code == 410) {
@@ -474,14 +517,18 @@ sub create_issue_process($$$$)
 sub create_issue($$$)
 {
   my ($self, $channel, $text) = @_;
+  my $repository;
 
-  return "Sorry, I don't know what repository to use."
-      if !defined $self->{repos}->{$channel} ||
-      scalar @{$self->{repos}->{$channel}} == 0;
+  $repository = $self->{repos}->{$channel}->[0] or
+      return "Sorry, I don't know what repository to use.";
+
+  $self->check_and_update_rate($repository) or
+      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
+      " times in ".RATEPERIOD." minutes. Please, try again later.";
 
   $self->forkit(
     {run => \&create_issue_process, channel => $channel,
-     arguments => [$self, $channel, $self->{repos}->{$channel}->[0], $text]});
+     arguments => [$self, $channel, $repository, $text]});
 
   return undef;			# The forked process will print a result
 }
@@ -504,6 +551,8 @@ sub close_issue_process($$$$$)
 
   if ($res->code == 403) {
     print "Cannot close issue $text. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot close issue. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot close issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -537,6 +586,10 @@ sub close_issue($$$)
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
 
+  $self->check_and_update_rate($repository) or
+      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
+      " times in ".RATEPERIOD." minutes. Please, try again later.";
+
   $self->forkit(
     {run => \&close_issue_process, channel => $channel,
      arguments => [$self, $channel, $repository, $text]});
@@ -562,6 +615,8 @@ sub reopen_issue_process($$$$)
 
   if ($res->code == 403) {
     print "Cannot reopen issue $text. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot reopen issue. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot reopen issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -597,6 +652,10 @@ sub reopen_issue($$$)
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
 
+  $self->check_and_update_rate($repository) or
+      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
+      " times in ".RATEPERIOD." minutes. Please, try again later.";
+
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
      arguments => [$self, $channel, $repository, $text]});
@@ -618,6 +677,8 @@ sub account_info_process($$$)
 
   if ($res->code == 403) {
     print "Cannot read account. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot read account. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot read account. Account not found.\n";
   } elsif ($res->code == 410) {
@@ -997,7 +1058,7 @@ die "Usage: $0 [options] [--help] irc[s]://server...\n" if $#ARGV != 0;
 # The single argument must be an IRC-URL.
 #
 ($proto, $user, $password, $host, $port, $channel) = $ARGV[0] =~
-    /^(ircs?):\/\/(?:([^:]+)(?::([^@]*))?@)?([^:\/#?]+)(?::([^\/]*))?(?:\/(.+)?)?$/i
+    /^(ircs?):\/\/(?:([^:@\/?#]+)(?::([^@\/?#]*))?@)?([^:\/#?]+)(?::([^\/]*))?(?:\/(.+)?)?$/i
     or die "Argument must be a URI starting with `irc:' or `ircs:'\n";
 $ssl = $proto =~ /^ircs$/i;
 $user =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg if defined $user;
