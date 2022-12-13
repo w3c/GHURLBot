@@ -392,6 +392,21 @@
   <p>The bot also reacts to <code>help</code> with some information
     about itself and a link to this manual.</p>
 
+  <h2 id=rate-limit>Built-in rate limit</h2>
+
+  <p>For security reasons, GHURLBot will write at most 100 times to a
+    repository per period of 10 minutes. (I.e., 100 issues or actions
+    created, closed or reopened; merely looking up an issue does not
+    count.) After 10 minutes, the count is reset. This limit is per
+    repository, not per IRC channel. If multiple IRC channels use the
+    same repository, their counts are added together.
+
+  <p>In addition, there is a limit on the total number of GitHub
+    requests on all repositories and all channels. This includes
+    making changes to issues, but also looking up information about an
+    issue. This limit is imposed by GitHub and is currently 5000
+    operations per hour.
+
   <h2 id=source>Source</h2>
 
   <p>GHURLBot is written in Perl.
@@ -402,4 +417,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Sun May 15 11:52:50 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Tue Dec 13 01:04:21 2022 UTC $ by $Author: Bert Bos $</address>
