@@ -55,7 +55,7 @@ use POSIX qw(strftime);
 use Net::Netrc;
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
-use constant VERSION => '0.1';
+use constant VERSION => '0.2';
 use constant DEFAULT_DELAY => 15;
 
 # GitHub limits requests to 5000 per hour per authenticated app (and
