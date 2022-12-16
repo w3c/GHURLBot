@@ -447,13 +447,16 @@ sub check_and_update_rate($$)
 sub create_action_process($$$$$$)
 {
   my ($body, $self, $channel, $repository, $names, $text) = @_;
-  my (@names, $res, $content, $date, $due);
+  my (@names, $res, $content, $date, $due, $today);
 
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
 
   $repository =~ s/^https:\/\/github.com\///;
   @names = map($self->name_to_login($_), split(/ *, */, $names));
+
+  $today = new Date::Manip::Date;
+  $today->parse("today");
 
   $date = new Date::Manip::Date;
   if ($text =~ /^(.*?)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
@@ -462,6 +465,11 @@ sub create_action_process($$$$$$)
     $date->parse("next week");	# Default to 1 week
   }
   $due = $date->printf("%e %b %Y");
+
+  if ($date->cmp($today) < 0) {
+    print "Cannot create the action, because $due is in the past.\n";
+    return;
+  }
 
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
