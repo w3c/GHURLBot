@@ -7,8 +7,6 @@
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
-# TODO: A way to remove a repository from the list for a channel.
-#
 # TODO: Allow "action-9" as an alternative for "#9"?
 #
 # TODO: Commands to register mappings of names to GitHub login names.
@@ -19,6 +17,9 @@
 # reopen issues? (Maybe people on IRC can somehow prove to ghurlbot
 # that they have a GitHub account and maybe ghurlbot can find out if
 # that account has the right to close an issue?)
+#
+# TODO: A way to ask for the github login of a given nick? Or to ask
+# for all known aliases?
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -144,25 +145,53 @@ sub rewrite_rejoinfile($)
 sub read_mapfile($)
 {
   my $self = shift;
+  my $channel;
 
   if (-f $self->{mapfile}) {		# File exists
     $self->log("Reading $self->{mapfile}");
     open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
     while (<$fh>) {
-      # The mapfile is a tab-separated file with four columns:
-      # <channel name> <repository URL> <delay> <what>
-      # where <what> contains zero, one or both of the words "issues"
-      # and "names", to indicate that issues and/or names are to be
-      # expanded on that channel. There may be multiple lines for the
-      # same channel. The repository is added to the list for that
-      # channel. Only the last <delay> and <what> for a channel are used.
-      my ($channel, $repo, $delay, $what) =
-	  $_ =~ /^([^\t]+)\t([^\t]+)\t([0-9]+)\t([^\t]*)\n?$/
-	  or return "$self->{mapfile}: wrong syntax";
-      push @{$self->{repos}->{$channel}}, $repo;
-      $self->{delays}->{$channel} = $delay;
-      $self->{suspend_issues}->{$channel} = 1 if $what !~ /\bissues\b/;
-      $self->{suspend_names}->{$channel} = 1 if $what !~ /\bnames\b/;
+      # Empty lines and line that start with "#" are ignored. Other
+      # lines must start with a keyword:
+      #
+      # alias NAME GITHUB-NAME
+      #   When an action is assigned to NAME, use GITHUB-NAME instead.
+      # channel CHANNEL
+      #   Lines up to the next "channel" apply to CHANNEL.
+      # repo REPO
+      #   Add REPO to the list of repositories for the current CHANNEL.
+      # delay NN
+      #   Set the delay for CHANNEL to NN.
+      # issues off
+      #   Do not expand issue references on CHANNEL.
+      # names off
+      #   Do not expand name references on CHANNEL.
+      # ignore NAME
+      #   Ignore commands that open/close issues when they come from NAME.
+      chomp;
+      if ($_ =~ /^#/) {
+	# Comment, ignored.
+      } elsif ($_ =~ /^\s*$/) {
+	# Empty line, ignored.
+      } elsif ($_ =~ /^\s*alias\s+([^\s]+)\s+([^\s]+)\s*$/) {
+	$self->{github_names}->{fc $1} = $2;
+      } elsif ($_ =~ /^\s*channel\s+([^\s]+)\s*$/) {
+	$channel = $1;
+      } elsif (! defined $channel) {
+	return "$self->{mapfile}:$.: missing \"channel\" line";
+      } elsif ($_ =~ /^\s*repo\s+([^\s]+)\s*$/) {
+	push @{$self->{repos}->{$channel}}, $1;
+      } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
+	$self->{delays}->{$channel} = 0 + $1;
+      } elsif ($_ =~ /\s*issues\s+off\s*$/) {
+	$self->{suspend_issues}->{$channel} = 1;
+      } elsif ($_ =~ /\s*names\s+off\s*$/) {
+	$self->{suspend_names}->{$channel} = 1;
+      } elsif ($_ =~ /\s*ignore\s+([^\s]+)\s*$/) {
+	$self->{ignored_nicks}->{$channel}->{fc $1} = $1;
+      } else {
+	return "$self->{mapfile}:$.: wrong syntax";
+      }
     }
   } else {				# File does not exist yet
     $self->log("Creating $self->{mapfile}");
@@ -180,13 +209,24 @@ sub write_mapfile($)
 
   if (open my $fh, '>', $self->{mapfile}) {
     foreach my $channel (keys %{$self->{repos}}) {
-      my $what = '';
-      $what .= 'issues,' if !defined $self->{suspend_issues}->{$channel};
-      $what .= 'names,' if !defined $self->{suspend_names}->{$channel};
-      foreach my $repo (@{$self->{repos}->{$channel}}) {
-	printf $fh "%s\t%s\t%d\t%s\n", $channel, $repo,
-	    $self->{delays}->{$channel} // DEFAULT_DELAY, $what;
-      }
+      # my $what = '';
+      # $what .= 'issues,' if !defined $self->{suspend_issues}->{$channel};
+      # $what .= 'names,' if !defined $self->{suspend_names}->{$channel};
+      # my $ignore = join ',', values %{$self->{ignored_nicks}->{$channel}};
+      # foreach my $repo (@{$self->{repos}->{$channel}}) {
+      # 	printf $fh "%s\t%s\t%d\t%s\t%s\n", $channel, $repo,
+      # 	    $self->{delays}->{$channel} // DEFAULT_DELAY, $what, $ignore;
+      # }
+      printf $fh "channel %s\n", $channel;
+      printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel}};
+      printf $fh "delay %d\n", $self->{delays}->{$channel};
+      printf $fh "issues off\n" if $self->{suspend_issues}->{$channel};
+      printf $fh "names off\n" if $self->{suspend_names}->{$channel};
+      printf $fh "ignore %s\n", $_ for values %{$self->{ignored_nicks}->{$channel}};
+      printf $fh "\n";
+    }
+    foreach my $nick (keys %{$self->{github_names}}) {
+      printf $fh "alias %s %s\n", $nick, $self->{github_names}->{$nick};
     }
   } else {
     $self->log("Cannot write $self->{mapfile}: $!");
@@ -280,7 +320,7 @@ sub add_repository($$)
   return "OK. But note that only issues are expanded. " .
       "To also expand names, please use: ".$self->nick().", set names to on"
       if defined $self->{suspend_names}->{$channel};
-  return 'OK';
+  return 'OK.';
 }
 
 
@@ -316,7 +356,7 @@ sub remove_repository($$$)
   $self->{repos}->{$channel} = \@h;
   $self->write_mapfile();	     # Write the new list to disk.
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
-  return 'OK';
+  return 'OK.';
 }
 
 
@@ -369,9 +409,8 @@ sub name_to_login($$)
 {
   my ($self, $nick) = @_;
 
-  # TODO.
-  return 'bert-github' if fc($nick) eq fc('Bert');
-  return $nick;
+  return $1 if $nick =~ /^@(.*)/; # A name prefixed with "@" is a GitHub login
+  return $self->{github_names}->{fc $nick} // $nick;
 }
 
 
@@ -466,8 +505,9 @@ sub create_action($$$)
       return "Sorry, I don't know what repository to use.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more ".
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&create_action_process, channel => $channel,
@@ -812,7 +852,7 @@ sub set_delay($$$)
     $self->{delays}->{$channel} = $n;
     $self->write_mapfile();
   }
-  return 'OK';
+  return 'OK.';
 }
 
 
@@ -827,12 +867,15 @@ sub status($$)
   $s .= ', issues are ' . ($self->{suspend_issues}->{$channel} ? 'off' : 'on');
   $s .= ', names are ' . ($self->{suspend_names}->{$channel} ? 'off' : 'on');
 
+  my $t = join ', ', values %{$self->{ignored_nicks}->{$channel}};
+  $s .= ", commands are ignored from $t" if $t ne '';
+
   if (!defined $repositories || scalar @$repositories == 0) {
-    $s .= ' and no repositories are specified.';
+    $s .= '; and no repositories are specified.';
   } elsif (scalar @$repositories == 1) {
-    $s .= ' and the repository is ' . $repositories->[0];
+    $s .= '; and the repository is ' . $repositories->[0];
   } else {
-    $s .= ' and the repositories are ' . join(' ', @$repositories);
+    $s .= '; and the repositories are ' . join(' ', @$repositories);
   }
   return $s;
 }
@@ -853,7 +896,7 @@ sub set_suspend_issues($$$)
   if ($on) {$self->{suspend_issues}->{$channel} = 1}
   else {delete $self->{suspend_issues}->{$channel}}
   $self->write_mapfile();
-  return 'OK';
+  return 'OK.';
 }
 
 
@@ -872,7 +915,7 @@ sub set_suspend_names($$$)
   if ($on) {$self->{suspend_names}->{$channel} = 1}
   else {delete $self->{suspend_names}->{$channel}}
   $self->write_mapfile();
-  return 'OK';
+  return 'OK.';
 }
 
 
@@ -883,8 +926,76 @@ sub set_suspend_all($$$)
   my $msg;
 
   $msg = $self->set_suspend_issues($channel, $on);
-  $msg = $msg eq 'OK' ? '' : "$msg\n";
+  $msg = $msg eq 'OK.' ? '' : "$msg\n";
   return $msg . $self->set_suspend_names($channel, $on);
+}
+
+
+# is_ignored_nick - check if commands from $who should be ignored on $channel
+sub is_ignored_nick($$$)
+{
+  my ($self, $channel, $who) = @_;
+
+  return defined $self->{ignored_nicks}->{$channel}->{fc $who};
+}
+
+
+# add_ignored_nicks -- add one or more nicks to the ignore list on $channel
+sub add_ignored_nicks($$$)
+{
+  my ($self, $channel, $nicks) = @_;
+  my $reply = "You need to give one or more IRC nicks after \"ignore\".";
+
+  for my $who (split /[ ,]+/, $nicks) {
+    if (defined $self->{ignored_nicks}->{$channel}->{fc $who}) {
+      $self->say({channel => $channel,
+		  body => "$who was already ignored on this channel."});
+    } else {
+      $self->{ignored_nicks}->{$channel}->{fc $who} = $who;
+    }
+    $reply = "OK.";
+  }
+  $self->write_mapfile();
+  return $reply;
+}
+
+
+# remove_ignored_nicks -- remove nicks from the ignore list on $channel
+sub remove_ignored_nicks($$$)
+{
+  my ($self, $channel, $nicks) = @_;
+  my $reply = "You need to give one or more IRC nicks after \"ignore\".";
+
+  for my $who (split /[ ,]+/, $nicks) {
+    if (!defined $self->{ignored_nicks}->{$channel}->{fc $who}) {
+      $self->say({channel => $channel,
+		  body => "$who was not ignored on this channel."});
+    } else {
+      delete $self->{ignored_nicks}->{$channel}->{fc $who};
+    }
+    $reply = "OK."
+  }
+  $self->write_mapfile();
+  return $reply;
+}
+
+
+# set_github_alias -- remember or forget the github login for a given nick
+sub set_github_alias($$$)
+{
+  my ($self, $who, $github_login) = @_;
+
+  if (fc $who eq fc $github_login) {
+    return "I already had that GitHub account for $who"
+	if !defined $self->{github_names}->{fc $who};
+    delete $self->{github_names}->{fc $who};
+  } else {
+    return "I already had that GitHub account for $who"
+	if fc $self->{github_names}->{fc $who} eq fc $github_login;
+    $self->{github_names}->{fc $who} = $github_login;
+  }
+  $self->write_mapfile();
+  return "OK.";
 }
 
 
@@ -957,26 +1068,40 @@ sub said($$)
       $text =~ /^ *(?:set +)?names *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
 
   return $self->create_issue($channel, $1)
-      if ($addressed || $do_issues) && $text =~ /^ *issue *: *(.*)$/i;
+      if ($addressed || $do_issues) && $text =~ /^ *issue *: *(.*)$/i &&
+      !$self->is_ignored_nick($channel, $who);
 
   return $self->close_issue($channel, $1)
       if ($addressed || $do_issues) &&
       ($text =~ /^ *close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-	$text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i);
+	$text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i) &&
+      !$self->is_ignored_nick($channel, $who);
 
   return $self->reopen_issue($channel, $1)
       if ($addressed || $do_issues) &&
       ($text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i);
+         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i) &&
+      !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2)
       if ($addressed || $do_issues) &&
       ($text =~ /^ *action +([^:]+?) *: *(.*?) *$/i ||
-	$text =~ /^ *action *: *(.*?) +to +(.*?) *$/i);
+	$text =~ /^ *action *: *(.*?) +to +(.*?) *$/i) &&
+      !$self->is_ignored_nick($channel, $who);
 
   return $self->account_info($channel)
       if $addressed &&
       $text =~ /^ *(?:who +are +you|account|user|login) *\?? *$/i;
+
+  return $self->add_ignored_nicks($channel, $1)
+      if $addressed && $text =~ /^ *ignore *(.*?) *$/i;
+
+  return $self->remove_ignored_nicks($channel, $1)
+      if $addressed && $text =~ /^ *(?:do +not|don't) +ignore *(.*?) *$/i;
+
+  return $self->set_github_alias($1, $2)
+      if $addressed &&
+      $text =~ /^ *([^ ]+)(?:\s*=\s*|\s+is\s+)*@?([^ ]+) *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
