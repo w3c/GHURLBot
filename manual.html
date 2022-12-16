@@ -67,6 +67,11 @@
 	date</a></td>
       </tr>
       <tr>
+	<td class=command><code>action @eve78: send mail</code></td>
+	<td><a href="#create-action">Create action using a GitHub
+	account name</a></td>
+      </tr>
+      <tr>
 	<td class=command><code>close #15</code></td>
 	<td><a href="#close">Close an issue or action</a></td>
       </tr>
@@ -106,6 +111,21 @@
 	<td class=command><code>ghurlbot, delay 20</code></td>
 	<td><a href="#delay">Set the number of lines before ghurlbot
 	looks up the same issue or name again</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, ignore RRSAgent, Zakim</code></td>
+        <td><a href="#ignore">Nicks that cannot open or close issues
+        &amp; actions</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>ghurlbot, don't ignore Zakim</code></td>
+        <td><a href="ignore">Let Zakim open/close issues &amp; actions
+        again</a></td>
+      </tr>
+      <tr>
+        <td class=command><code>ghurlbot, Eve = eve78<br>
+        ghurlbot, Eve is eve78</code></td>
+        <td><a href="#aliases">Define aliases for GitHub account names</a></td>
       </tr>
       <tr>
 	<td class=command><code>ghurlbot, status</code></td>
@@ -273,9 +293,12 @@
   <p>Many different ways of describing a date are supported, including
     things like ‘in 2 weeks’, ‘tomorrow’ and ‘next Tuesday’.</p>
 
-  <p>[To do: the action is assigned to the person with the given login
-    on GitHub. A way to register aliases for people has not yet been
-    added.]</p>
+  <p>By default, the name must be the name of an account on GitHub,
+    but you can define <a href="#aliases" >aliases</a>, see below. You
+    can also prefix the name with <code>@</code> (in which case
+    Ghurlbot will not check if it knows an alias).
+
+  <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
 
   <h2 id=close>Closing an issue or action</h2>
 
@@ -297,6 +320,54 @@
     with <code>reopen</code>, followed by an issue number, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; reopen #15</pre>
+
+  <h2 id=ignore>IRC nicks that should not open or close issues &amp;
+    actions</h2>
+
+  <p>Certain IRC bots may print text that looks like an action or an
+    issue, but isn't really. E.g., RRSAgent repeats all actions at the
+    end of a meeting. To stop such bots from inadvertently opening or
+    closing issues and actions, you can add their name to an ignore
+    list:
+
+  <pre class=command>&lt;joe&gt; ghurlbot, ignore RRSAgent</pre>
+
+  <p>You can specify multiple names (separated by commas and/or
+    spaces). Case doesn't matter: ‘rrsagent’ and ‘RRSAgent’ are the
+    same.
+
+  <p>If you made a mistake, you can say:
+
+  <pre class=command>&lt;joe&gt; ghurlbot, don't ignore RRSAgent</pre>
+
+  <p>or
+
+  <pre class=command>&lt;joe&gt; ghurlbot, do not ignore RRSAgent</pre>
+
+  <p>IRC nicks are only ignored on the current channel. If you need to
+    ignore the same nicks on other channels, you need to repeat the
+    command on each of the channels.
+
+  <h2 id=aliases>Mapping names to GitHub accounts</h2>
+
+  <p>When you create an action for somebody, it is usually the easiest
+    to use the IRC nick name of that person. But if the IRC nick is
+    not the same as the GitHub account name of that person, GitHub
+    will assign the action to nobody.
+
+  <p>To help with that, you can define aliases with <code>=</code>
+    or <code>is</code>, e.g.:
+
+  <pre class=command>&lt;joe&gt; ghurlbot, Eve = eve78
+&lt;joe&gt; ghurlbot, dayan is dcslobo</pre>
+
+  <p>An initial <code>@</code> is optional:
+
+  <pre class=command>&lt;joe&gt; ghurlbot, Eve = @eve78</pre>
+
+  <p>The first name is the one you plan to use when creating actions,
+    the second is the corresponding GitHub account name. In fact, you
+    can define arbitrary aliases. They don't have to be IRC nicks.
 
   <h2 id=invite>Inviting and dismissing the bot</h2>
 
