@@ -578,7 +578,7 @@ sub create_issue_process($$$$)
     print "Cannot create issue. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Created $content->{html_url} -> issue $content->{number}",
+    print "Created -> issue $content->{number} $content->{html_url}",
 	" $content->{title}\n";
   }
 }
@@ -703,12 +703,12 @@ sub reopen_issue_process($$$$)
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
       $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $content->{body} // '';
-      print "Reopened $content->{html_url} -> action $content->{number} ",
+      print "Reopened -> action $content->{number} $content->{html_url} ",
 	  "$content->{title} (on ",
 	  join(', ', map($_->{login}, @{$content->{assignees}})),
 	  ")$comment\n";
     } else {
-      print "Reopened $content->{html_url} -> issue $content->{number} ",
+      print "Reopened -> issue $content->{number} $content->{html_url} ",
 	  "$content->{title}\n";
     }
   }
@@ -1292,7 +1292,7 @@ somebody mentions a short reference to a GitHub issue or pull request
 Example:
 
  <joe> Let's talk about #13.
- <ghurlbot> -> #13 https://github.com/xxx/yyy/issues/13
+ <ghurlbot> https://github.com/xxx/yyy/issues/13 -> #13
 
 B<ghurlbot> can also retrieve a summary of the issue from GitHub, if
 it has been given a token (a kind of password) that gives access to
