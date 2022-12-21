@@ -242,9 +242,13 @@
     was already in the list.)
 
   <p>You can also use the syntax of scribe.perl (version 205), which
-    accepts multiple on one line:
+    accepts multiple repositories on one line:
 
-  <pre clas=command>&lt;joe&gt; repo: xxx/yyy, zzz</pre>
+  <pre class=command>&lt;joe&gt; repo: xxx/yyy, zzz</pre>
+
+  <p>Instead of <code>repo</code>, you can also
+    use <code>repos</code>, <code>repository</code> or
+    <code>repositories</code>.
 
   <p>Ghurlbot remembers the repositories even when it is
     dismissed from a channel. When it is later asked to rejoin, it
@@ -259,6 +263,11 @@
   <p>Instead of <code>drop</code>, you can also
     say <code>forget</code>, <code>remove</code>, <code>don't
     use</code> or <code>do not use</code>.</p>
+
+  <p>To remove all repositories, you can use an
+    empty <code>repo</code> command:
+
+  <pre class=command>&lt;joe&gt; repo:</pre>
 
   <h2 id=create-issue>Creating an issue</h2>
 
@@ -493,4 +502,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Wed Dec 21 14:44:16 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Wed Dec 21 14:50:29 2022 UTC $ by $Author: Bert Bos $</address>
