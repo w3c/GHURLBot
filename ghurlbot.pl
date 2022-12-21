@@ -277,7 +277,7 @@ sub repository_to_url($$$)
   my ($self, $channel, $repo) = @_;
 
   my ($base, $owner, $name) = $repo =~
-      /^([a-z]+:\/\/(?:[^\/?#]*\/)*?)?([^\/?#]+\/)?([^\/?#]+)\/?$/i;
+      /^([a-z]+:\/\/(?:[^\/?\#]*\/)*?)?([^\/?\#]+\/)?([^\/?\#]+)\/?$/i;
 
   return ($repo, undef)
       if $base;			# It's already a full URL
