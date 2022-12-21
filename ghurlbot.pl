@@ -211,7 +211,7 @@ sub write_mapfile($)
     foreach my $channel (keys %{$self->{repos}}) {
       printf $fh "channel %s\n", $channel;
       printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel}};
-      printf $fh "delay %d\n", $self->{delays}->{$channel};
+      printf $fh "delay %d\n", $self->{delays}->{$channel} // DEFAULT_DELAY;
       printf $fh "issues off\n" if $self->{suspend_issues}->{$channel};
       printf $fh "names off\n" if $self->{suspend_names}->{$channel};
       printf $fh "ignore %s\n", $_ for values %{$self->{ignored_nicks}->{$channel}};
@@ -287,33 +287,39 @@ sub repository_to_url($$$)
       if $owner;
   return (undef, "sorry, that doesn't look like a valid repository: $repo")
       if ! $name;
-  return ("https://github.com/w3c$name", undef)
+  return ("https://github.com/w3c/$name", undef)
       # or: (undef,"sorry, I don't know the owner. Please, use 'OWNER/$name'")
       if ! defined $self->{repos}->{$channel};
   return ($self->{repos}->{$channel}->[0] =~ s/[^\/]+$/$name/r, undef);
 }
 
 
-# add_repository -- remember the repository $2 for channel $1
-sub add_repository($$$)
+# add_repositories -- remember the repositories $2 for channel $1
+sub add_repositories($$$)
 {
-  my ($self, $channel, $repository) = @_;
-  my ($msg, @h);
+  my ($self, $channel, $repos) = @_;
+  my $err = '';
+  my @h;
 
-  ($repository, $msg) = $self->repository_to_url($channel, $repository);
-  return $msg if $msg;
+  foreach (split /[ ,]+/, $repos) {
+    my ($repository, $msg) = $self->repository_to_url($channel, $_);
 
-  # Add $repository at the head of the list of repositories for this
-  # channel, or move it to the head, if it was already in the list.
-  if (defined $self->{repos}->{$channel}) {
-    @h = grep $_ ne $repository, @{$self->{repos}->{$channel}};
+    if ($msg) {
+      $err .= "$msg\n";
+    } else {
+      # Add $repository at the head of the list of repositories for this
+      # channel, or move it to the head, if it was already in the list.
+      if (defined $self->{repos}->{$channel}) {
+	@h = grep $_ ne $repository, @{$self->{repos}->{$channel}};
+      }
+      unshift @h, $repository;
+      $self->{repos}->{$channel} = \@h;
+    }
   }
-  unshift @h, $repository;
-  $self->{repos}->{$channel} = \@h;
-
   $self->write_mapfile();
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
 
+  return $err if $err;
   return "OK. But note that I'm currently off. " .
       "Please use: ".$self->nick().", on"
       if defined $self->{suspend_issues}->{$channel} &&
@@ -328,44 +334,34 @@ sub add_repository($$$)
 }
 
 
-# add_repositories -- remember the repositories $2 for channel $1
-sub add_repositories($$$)
+# remove_repositories -- remove one or more repositories from this channel
+sub remove_repositories($$$)
 {
   my ($self, $channel, $repos) = @_;
-  my $err;
-
-  foreach (split /[ ,]+/, $repos) {
-    my $msg = $self->add_repository($channel, $_);
-    $self->say(channel => $channel, body => $msg), $err++ if $msg !~ /^OK\b/;
-  }
-  return 'OK.' if ! $err;
-}
-
-
-# remove_repository -- remove a repository from this channel
-sub remove_repository($$$)
-{
-  my ($self, $channel, $repository) = @_;
   my $repositories = $self->{repos}->{$channel} // [];
-  my $found = 0;
-  my ($msg, @h);
+  my $err = '';
 
   return "sorry, this channel has no repositories." if ! @$repositories;
 
-  ($repository, $msg) = $self->repository_to_url($channel, $repository);
-  return $msg if $msg;
+  foreach (split /[ ,]+/, $repos) {
+    my ($repository, $msg) = $self->repository_to_url($channel, $_);
 
-  foreach (@$repositories) {
-    if ($_ ne $repository) {push @h, $_}
-    else {$found = 1}
+    if ($msg) {
+      $err .= "$msg\n";
+    } else {
+      my $found = 0;
+      my @h = ();
+      foreach (@$repositories) {
+	if ($_ ne $repository) {push @h, $_}
+	else {$found = 1}
+      }
+      $err .= "$repository was already removed.\n" if !$found;
+      $self->{repos}->{$channel} = \@h;
+    }
   }
-
-  return "$repository was already removed." if !$found;
-
-  $self->{repos}->{$channel} = \@h;
-  $self->write_mapfile();	     # Write the new list to disk.
+  $self->write_mapfile();	       # Write the new list to disk.
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
-  return 'OK.';
+  return $err ? $err : 'OK.';
 }
 
 
@@ -1065,19 +1061,18 @@ sub said($$)
   return $self->part_channel($channel), undef
       if $addressed && $text =~ /^ *bye *\.? *$/i;
 
-  return $self->add_repository($channel, $1)
-      if $addressed &&
-      $text =~ /^ *(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ]+) *$/i;
-
   return $self->add_repositories($channel, $1)
-      if $text =~ /^ *repo(?:s|sitory|sitories)? *[:：] *(.+?) *$/i;
+      if ($addressed &&
+	$text =~ /^ *(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ].*?) *$/i) ||
+      $text =~ /^ *repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*?) *$/i;
 
-  return $self->remove_repository($channel, $1)
-      if $addressed &&
-      $text =~ /^ *(?:forget|drop|remove|don't +use|do +not +use) +([^ ]+) *$/;
+  return $self->remove_repositories($channel, $1)
+      if ($addressed &&
+	$text =~ /^ *(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*?) *$/) ||
+      $text =~ /^ *repo(?:s|sitory|sitories)? *(?:-|-[:：]?) *([^ ].*?) *$/i;
 
   return $self->clear_repositories($channel)
-      if $text =~ /^ *repo(?:s|sitory|sitories)? *[:：] *$/i;
+      if $text =~ /^ *repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *$/i;
 
   return $self->set_delay($channel, 0 + $1)
       if $addressed &&

@@ -232,17 +232,19 @@
 
   <pre class=command>&lt;joe&gt; ghurlbot, discussing xxx/yyy</pre>
 
-  <p>And if you previously specified a repository with the same owner,
-    you can also omit the owner:</p>
+  <p>You can list mutliple repositories. And if you previously
+    specified a repository with the same owner, you can also omit the
+    owner:</p>
 
-  <pre class=command>&lt;joe&gt; ghurlbot, discussing yyy</pre>
+  <pre class=command>&lt;joe&gt; ghurlbot, discussing yyy, zzz</pre>
 
   <p>Every time you use the command, ghurlbot will add the given
     repository to its list. (Or move it to the top of the list, if it
     was already in the list.)
 
-  <p>You can also use the syntax of scribe.perl (version 205), which
-    accepts multiple repositories on one line:
+  <p>You can also use the syntax
+    of <a href="https://w3c.github.io/scribe2/scribedoc.html#issue-links"
+    >scribe.perl</a> (version 205):
 
   <pre class=command>&lt;joe&gt; repo: xxx/yyy, zzz</pre>
 
@@ -263,6 +265,13 @@
   <p>Instead of <code>drop</code>, you can also
     say <code>forget</code>, <code>remove</code>, <code>don't
     use</code> or <code>do not use</code>.</p>
+
+  <p>You can list multiple repositories. And you can also use the
+    syntax
+    of <a href="https://w3c.github.io/scribe2/scribedoc.html#issue-links"
+    >scribe.perl</a> (version 205):
+
+  <pre class=command>&lt;joe&gt; repo- xxx/yyy</pre>
 
   <p>To remove all repositories, you can use an
     empty <code>repo</code> command:
@@ -502,4 +511,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Wed Dec 21 14:50:29 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Wed Dec 21 22:18:00 2022 UTC $ by $Author: Bert Bos $</address>
