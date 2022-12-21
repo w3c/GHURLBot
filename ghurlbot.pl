@@ -1142,7 +1142,7 @@ sub said($$)
 
   return $self->set_github_alias($1, $2)
       if $addressed &&
-      $text =~ /^ *([^ ]+)(?:\s*=\s*|\s+is\s+)*@?([^ ]+) *$/i;
+      $text =~ /^ *([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+) *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
