@@ -209,14 +209,6 @@ sub write_mapfile($)
 
   if (open my $fh, '>', $self->{mapfile}) {
     foreach my $channel (keys %{$self->{repos}}) {
-      # my $what = '';
-      # $what .= 'issues,' if !defined $self->{suspend_issues}->{$channel};
-      # $what .= 'names,' if !defined $self->{suspend_names}->{$channel};
-      # my $ignore = join ',', values %{$self->{ignored_nicks}->{$channel}};
-      # foreach my $repo (@{$self->{repos}->{$channel}}) {
-      # 	printf $fh "%s\t%s\t%d\t%s\t%s\n", $channel, $repo,
-      # 	    $self->{delays}->{$channel} // DEFAULT_DELAY, $what, $ignore;
-      # }
       printf $fh "channel %s\n", $channel;
       printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel}};
       printf $fh "delay %d\n", $self->{delays}->{$channel};
@@ -279,25 +271,37 @@ sub chanjoin($$)
 }
 
 
+# repository_to_url -- expand a repository name to a full URL, or return error
+sub repository_to_url($$$)
+{
+  my ($self, $channel, $repo) = @_;
+
+  my ($base, $owner, $name) = $repo =~
+      /^([a-z]+:\/\/(?:[^\/?#]*\/)*?)?([^\/?#]+\/)?([^\/?#]+)\/?$/i;
+
+  return ($repo, undef)
+      if $base;			# It's already a full URL
+  return (defined $self->{repos}->{$channel} ?
+    $self->{repos}->{$channel}->[0] =~ s/[^\/]+\/[^\/]+$/$owner$name/r :
+    "https://github.com/$owner$name", undef)
+      if $owner;
+  return (undef, "sorry, that doesn't look like a valid repository: $repo")
+      if ! $name;
+  return ("https://github.com/w3c$name", undef)
+      # or: (undef,"sorry, I don't know the owner. Please, use 'OWNER/$name'")
+      if ! defined $self->{repos}->{$channel};
+  return ($self->{repos}->{$channel}->[0] =~ s/[^\/]+$/$name/r, undef);
+}
+
+
 # add_repository -- remember the repository $2 for channel $1
-sub add_repository($$)
+sub add_repository($$$)
 {
   my ($self, $channel, $repository) = @_;
-  my @h;
+  my ($msg, @h);
 
-  # Expand the repository to a full URL, if needed.
-  $repository =~ s/^ +//;	# Remove any leading spaces
-  $repository =~ s/ *+$//;	# Remove any final spaces
-  $repository =~ s/\/$//;	# Remove any final slash
-  if ($repository !~ m{/}) {	# Only a repository name
-    return "sorry, I don't know the owner. Please, use 'OWNER/$repository'"
-	if !defined $self->{repos}->{$channel};
-    $repository = $self->{repos}->{$channel}->[0] =~ s/[^\/]*$/$repository/r;
-  } elsif ($repository =~ m{^[^/]+/[^/]+$}) { # "owner/repository"
-    $repository = "https://github.com/$repository";
-  } elsif ($repository !~ m{^https://github.com/[^/]+/[^/]+$}) {
-    return "sorry, that doesn't look like a valid repository name.";
-  }
+  ($repository, $msg) = $self->repository_to_url($channel, $repository);
+  return $msg if $msg;
 
   # Add $repository at the head of the list of repositories for this
   # channel, or move it to the head, if it was already in the list.
@@ -324,27 +328,32 @@ sub add_repository($$)
 }
 
 
+# add_repositories -- remember the repositories $2 for channel $1
+sub add_repositories($$$)
+{
+  my ($self, $channel, $repos) = @_;
+  my $err;
+
+  foreach (split /[ ,]+/, $repos) {
+    my $msg = $self->add_repository($channel, $_);
+    $self->say(channel => $channel, body => $msg), $err++ if $msg !~ /^OK\b/;
+  }
+  return 'OK.' if ! $err;
+}
+
+
 # remove_repository -- remove a repository from this channel
 sub remove_repository($$$)
 {
   my ($self, $channel, $repository) = @_;
   my $repositories = $self->{repos}->{$channel} // [];
   my $found = 0;
-  my @h;
+  my ($msg, @h);
 
   return "sorry, this channel has no repositories." if ! @$repositories;
 
-  # Expand the repository to a full URL, if needed.
-  $repository =~ s/^ +//;	# Remove any leading spaces
-  $repository =~ s/ *+$//;	# Remove any final spaces
-  $repository =~ s/\/$//;	# Remove any final slash
-  if ($repository !~ m{/}) {	# Only a repository name
-    $repository = $repositories->[0] =~ s/[^\/]*$/$repository/r;
-  } elsif ($repository =~ m{^[^/]+/[^/]+$}) { # "owner/repository"
-    $repository = "https://github.com/$repository";
-  } elsif ($repository !~ m{^https://github.com/[^/]+/[^/]+$}) {
-    return "sorry, that doesn't look like a valid repository name.";
-  }
+  ($repository, $msg) = $self->repository_to_url($channel, $repository);
+  return $msg if $msg;
 
   foreach (@$repositories) {
     if ($_ ne $repository) {push @h, $_}
@@ -356,6 +365,15 @@ sub remove_repository($$$)
   $self->{repos}->{$channel} = \@h;
   $self->write_mapfile();	     # Write the new list to disk.
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
+  return 'OK.';
+}
+
+
+# clear_repositories -- forget all repositories for a channel
+sub clear_repositories($$)
+{
+  my ($self, $channel) = @_;
+  delete $self->{repos}->{$channel};
   return 'OK.';
 }
 
@@ -452,7 +470,10 @@ sub create_action_process($$$$$$)
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
 
-  $repository =~ s/^https:\/\/github.com\///;
+  $repository =~ s/^https:\/\/github\.com\///i or
+      print "Cannot create actions on $repository as it is not on github.com.\n"
+      and return;
+
   @names = map($self->name_to_login($_), split(/ *, */, $names));
 
   $today = new Date::Manip::Date;
@@ -497,8 +518,7 @@ sub create_action_process($$$$$$)
     $content = decode_json($res->decoded_content);
     @names = ();
     push @names, $_->{login} foreach @{$content->{assignees}};
-    print "Created $content->{html_url} -> action $content->{number}",
-	" $content->{title} (on ", join(', ', @names), ") due $due\n";
+    print "Created -> action $content->{number} $content->{html_url}\n";
   }
 }
 
@@ -531,7 +551,10 @@ sub create_issue_process($$$$)
   my ($body, $self, $channel, $repository, $text) = @_;
   my ($res, $content);
 
-  $repository =~ s/^https:\/\/github.com\///;
+  $repository =~ s/^https:\/\/github\.com\///i or
+      print "Cannot create issues on $repository as it is not on github.com.\n"
+      and return;
+
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     Content => encode_json({title => $text}));
@@ -589,7 +612,9 @@ sub close_issue_process($$$$$)
   my ($res, $content, $issuenumber);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
-  $repository =~ s/^https:\/\/github.com\///;
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      print "Cannot close issues on $repository as it is not on github.com.\n"
+      and return;
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'closed'}));
@@ -614,12 +639,9 @@ sub close_issue_process($$$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print "Closed $content->{html_url} -> action $content->{number}",
-	  " $content->{title} (on ",
-	  join(', ', map($_->{login}, @{$content->{assignees}})), ")\n";
+      print "Closed -> action $content->{number} $content->{html_url}\n";
     } else {
-      print "Closed $content->{html_url} -> issue $content->{number} ".
-	  "$content->{title}\n";
+      print "Closed -> issue $content->{number} $content->{html_url}\n";
     }
   }
 }
@@ -653,7 +675,9 @@ sub reopen_issue_process($$$$)
   my ($res, $content, $issuenumber, $comment);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
-  $repository =~ s/^https:\/\/github.com\///;
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      print "Cannot open issuess on $repository as it is not on github.com.\n"
+      and return;
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'open'}));
@@ -773,7 +797,10 @@ sub get_issue_summary_process($$$$)
     return;
   }
 
-  ($owner, $repo) = $repository =~ /([^\/]+)\/([^\/]+)$/;
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
+      print "$repository/issues/$issue -> \#$issue\n" and
+      return;
 
   $res = $self->{ua}->get(
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
@@ -1042,9 +1069,15 @@ sub said($$)
       if $addressed &&
       $text =~ /^ *(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ]+) *$/i;
 
+  return $self->add_repositories($channel, $1)
+      if $text =~ /^ *repo(?:s|sitory|sitories)? *[:：] *(.+?) *$/i;
+
   return $self->remove_repository($channel, $1)
       if $addressed &&
       $text =~ /^ *(?:forget|drop|remove|don't +use|do +not +use) +([^ ]+) *$/;
+
+  return $self->clear_repositories($channel)
+      if $text =~ /^ *repo(?:s|sitory|sitories)? *[:：] *$/i;
 
   return $self->set_delay($channel, 0 + $1)
       if $addressed &&
