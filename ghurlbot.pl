@@ -49,8 +49,8 @@ use File::Copy;
 use LWP;
 use LWP::ConnCache;
 use JSON::PP;
-# use Date::Parse;
 use Date::Manip::Date;
+use Date::Manip::Delta;
 use POSIX qw(strftime);
 use Net::Netrc;
 
@@ -281,7 +281,7 @@ sub repository_to_url($$$)
 
   return ($repo, undef)
       if $base;			# It's already a full URL
-  return (defined $self->{repos}->{$channel} ?
+  return (defined $self->{repos}->{$channel}->[0] ?
     $self->{repos}->{$channel}->[0] =~ s/[^\/]+\/[^\/]+$/$owner$name/r :
     "https://github.com/$owner$name", undef)
       if $owner;
@@ -481,12 +481,16 @@ sub create_action_process($$$$$$)
   } else {
     $date->parse("next week");	# Default to 1 week
   }
-  $due = $date->printf("%e %b %Y");
 
-  if ($date->cmp($today) < 0) {
-    print "Cannot create the action, because $due is in the past.\n";
-    return;
+  # When a due date is in the past, adjust the year and print a warning.
+  if ($today->cmp($date) > 0) {
+    my $delta = new Date::Manip::Delta;
+    $delta->parse("+1 year");
+    $date = $date->calc($delta) until $date->cmp($today) >= 0;
+    print "Assumed the due date is in ", $date->printf("%Y"), "\n";
   }
+
+  $due = $date->printf("%e %b %Y");
 
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
