@@ -1254,6 +1254,8 @@ if (defined $user && !defined $password) {
   chomp $password;
 }
 
+STDERR->autoflush(1);		# Write the log without buffering
+
 my $bot = GHURLBot->new(
   server => $host,
   port => $port,
