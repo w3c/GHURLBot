@@ -14,6 +14,7 @@ use warnings;
 use utf8;
 use POE::Kernel;
 use POE::Session;
+use POE qw(Component::IRC Component::IRC::Plugin::NickReclaim);
 
 
 # run -- start the event loop
@@ -57,8 +58,6 @@ sub run
 
 	irc_shutdown     => "shutdown_state",
 
-	irc_433          => "err_nicknameinuse_state",
-
 	irc_raw          => "irc_raw_state",
 	irc_raw_out      => "irc_raw_out_state",
 
@@ -72,6 +71,54 @@ sub run
 
   # run
   $poe_kernel->run() if !$self->{no_run};
+  return;
+}
+
+
+# start_state -- called just after the IRC object is created
+sub start_state
+{
+  my ($self, $kernel, $session) = @_[OBJECT, KERNEL, SESSION];
+
+  # This method differs from the method inherited from Bot::BasicBot
+  # by the addition of the NickReclaim plugin. It automatically adds
+  # an underscore to the nick if the requested nick is already in use
+  # and tries to reclaim the requested nick when it becomes available.
+
+  $kernel->sig('DIE', 'die');
+  $self->{session} = $session;
+
+  # Make an alias for our session, to keep it from getting GC'ed.
+  $kernel->alias_set($self->{ALIASNAME});
+  $kernel->delay('tick', 30);
+
+  $self->{IRCOBJ} = POE::Component::IRC::State->spawn(
+      Nick      => $self->nick,
+      Server    => $self->server,
+      Port      => $self->port,
+      Password  => $self->password,
+      UseSSL    => $self->ssl,
+      Flood     => $self->flood,
+      LocalAddr => $self->localaddr,
+      useipv6   => $self->useipv6,
+      webirc    => $self->webirc,
+      $self->charset_encode(
+	Nick     => $self->nick,
+	Username => $self->username,
+	Ircname  => $self->name),
+    alias => $self->{IRCNAME});
+
+  $self->{IRCOBJ}->plugin_add(
+    'Connector',
+    POE::Component::IRC::Plugin::Connector->new());
+
+  $kernel->post($self->{IRCNAME}, 'register', 'all');
+
+  $self->{IRCOBJ}->plugin_add(
+    'NickReclaim',
+    POE::Component::IRC::Plugin::NickReclaim->new(poll => 30));
+
+  $kernel->post($self->{IRCNAME}, 'connect' => {});
   return;
 }
 
@@ -92,11 +139,17 @@ sub disconnected
 }
 
 
-# nickname_in_use_error -- handle a nickname-in-use error. Can be overridden.
-sub nickname_in_use_error
+# nick -- return or set our nick
+sub nick
 {
-  my ($self, $message) = @_;
-  $self->log("Error: $message");
+  my $self = shift;
+
+  if (defined $self->{IRCOBJ}) {
+    $self->{IRCOBJ}->yield('nick', shift) if @_;
+    return $self->{IRCOBJ}->nick_name;
+  } else {
+    return $self->SUPER::nick(@_);
+  }
 }
 
 
@@ -475,13 +528,6 @@ sub shutdown_state
 }
 
 
-sub err_nicknameinuse_state
-{
-  my ($self, $kernel, $server, $message) = @_[OBJECT, KERNEL, ARG0, ARG1];
-  $self->nickname_in_use_error($message);
-}
-
-
 1;
 
 =head1 NAME
@@ -536,6 +582,13 @@ something, somebody joined, etc.)
 
 ExtendedBot itself is a subclass of BasicBot. You should read its
 documentation and look at its examples.
+
+ExtendedBot differs from BasicBot by the addition of some methods (see
+below). And it automatically handles the case that our nick name is
+already in use when we connect: It which will try again with an
+underscore added to the nick, and then try to switch to the original
+nick when it becomes available again. (It uses the plugin
+POE::Component::IRC::Plugin::NickReclaim for that.)
 
 =head1 METHODS TO OVERRIDE
 
@@ -611,13 +664,6 @@ seven, Plexus)
 This method is called when the connection to the server is lost. It
 has one argument: the name of the server. The default method just
 calls log(), but a subclass can override it.
-
-=head2 C<nickname_in_use_error>
-
-This method is called when the server sends a message that a nickname
-is already in use, typically when we are trying to connect to the
-server. It has one argument: the error message. The default method
-just calls log(), but a subclass can override it.
 
 =head1 BOT METHODS
 
@@ -719,7 +765,7 @@ arguments, notably a missing C<run> argument.
 Call this method to send a whois query to the server. The argument
 must be a nick name.
 
-=head2 join_channel
+=head2 C<join_channel>
 
 Call this method to join a channel. The argument is the name of a
 channel.
@@ -748,6 +794,15 @@ arguments. The server, port, nick, etc. are those previously set (or
 those passed to C<new>.) Note that calling C<run> causes the bot to
 connect to a server, so the C<connect_server> is only useful if the
 connection is lost.
+
+=head2 C<nick>
+
+Without an argument, returns our current nick. With an argument, tries
+to set our nick to that argument. If we are connected to a server,
+that means sending a request to the server. If the server is able to
+give us that nick, we will receive an event at some point and the
+C<nick_change> method will be called. If we are not connected, this
+just sets the nick to use for the next time we connect.
 
 =head1 ATTRIBUTES
 
