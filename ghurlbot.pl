@@ -1169,22 +1169,6 @@ sub connected($)
 }
 
 
-# nickname_in_use_error -- handle a nickname_in_use_error
-sub nickname_in_use_error($$)
-{
-  my ($self, $message) = @_;
-
-  $self->log("Error: $message\n");
-
-  # If the nick length isn't too long already, add an underscore and try again
-  if (length($self->nick) < 20) {
-    $self->nick($self->nick() . '_');
-    $self->connect_server();
-  }
-  return;
-}
-
-
 # log -- print a message to STDERR, but only if -v (verbose) was specified
 sub log
 {
