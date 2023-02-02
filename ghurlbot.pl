@@ -25,6 +25,13 @@
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
 #
+# TODO: When creating an action, check in the response from GitHub
+# that the label "action" has actually been set and that the assignee
+# has been accepted, because GitHub silently drops them if ghurlbot
+# does not have push access to the repository, while still responding
+# with a 201. See
+# https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28#create-an-issue
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
