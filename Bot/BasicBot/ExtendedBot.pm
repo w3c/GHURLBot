@@ -285,6 +285,58 @@ sub say
 }
 
 
+# emote -- send test to a channel as with "/me"
+sub emote
+{
+  # Override the inherited method, because we want to handle multiline text.
+
+  # If we're called without an object ref, then we're handling emoting
+  # stuff from inside a forked subroutine, so we'll freeze it, and
+  # toss it out on STDOUT so that POE::Wheel::Run's handler can pick
+  # it up.
+  if (!ref $_[0]) {
+    print $_[0], "\n";
+    return 1;
+  }
+
+  # Otherwise, this is a standard object method
+
+  my $self = shift;
+  my $args;
+  if (ref $_[0]) {
+    $args = shift;
+  } else {
+    my %args = @_;
+    $args = \%args;
+  }
+
+  my $body = $args->{body};
+
+  # Work out who we're going to send the message to
+  my $who = $args->{channel} eq "msg" ? $args->{who} : $args->{channel};
+
+  # If we have a long body, split it up..
+  local $Text::Wrap::columns = 300;
+  local $Text::Wrap::unexpand = 0; # no tabs
+  local $Text::Wrap::break = qr/\s|(?<=-)/;
+  local $Text::Wrap::separator2 = "\n";
+  my $wrapped = Text::Wrap::wrap('', '… ', $body); #  =~ m!(.{1,300})!g;
+  # I think the Text::Wrap docs lie - it doesn't do anything special
+  # in list context
+  my @bodies = split /\n+/, $wrapped;
+
+  # post an event that will send the message
+  # if there's a better way of sending actions i'd love to know - jw
+  # me too; i'll look at it in v0.5 - sb
+
+  for my $body (@bodies) {
+    my ($enc_who, $enc_body) = $self->charset_encode($who, "ACTION $body");
+    $poe_kernel->post($self->{IRCNAME}, 'ctcp', $enc_who, $enc_body);
+  }
+
+  return;
+}
+
 # whois -- send a whois command to the server, argument is a nick
 sub whois
 {
@@ -410,7 +462,9 @@ sub irc_received_state
   # This method is the same as the inherited one, but stricter when
   # deciding whether we are personally addressed: When our name is foo
   # and somebody says "foo," we assume we are addressed. But not if
-  # somebody says "foo:", "foo-" or even "fool".
+  # somebody says "foo:", "foo-" or even "fool". And also, when
+  # somebody asks help in a /me message, we reply in a /me message,
+  # too, instead of in a normal message.
 
   ($nick, $to, $body) = $self->charset_decode($nick, $to, $body);
 
@@ -463,7 +517,7 @@ sub irc_received_state
   # Check if someone was asking for help
   if ($mess->{address} && $mess->{body} =~ /^help\b/i) {
     $mess->{body} = $self->help($mess) or return;
-    $self->say($mess);
+    $self->$respond($mess);
     return;
   }
 
