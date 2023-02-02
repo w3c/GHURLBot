@@ -9,8 +9,6 @@
 #
 # TODO: Allow "action-9" as an alternative for "#9"?
 #
-# TODO: Commands to register mappings of names to GitHub login names.
-#
 # TODO: Search for issues in a repository by label?
 #
 # TODO: Add a permission system to limit who can create, close or
@@ -20,6 +18,12 @@
 #
 # TODO: A way to ask for the github login of a given nick? Or to ask
 # for all known aliases?
+#
+# TODO: Lock the mapfile, to avoid damage if another instance of
+# ghurlbot is using the same file?
+#
+# TODO: Should all responses from the bot other than expanded
+# references be emoted ("/me")?
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -39,6 +43,7 @@ use lib "$FindBin::Bin";	# Look for modules in agendabot's directory
 use parent 'Bot::BasicBot::ExtendedBot';
 use strict;
 use warnings;
+use utf8;
 use v5.16;			# Enable fc
 use Getopt::Std;
 use Scalar::Util 'blessed';
@@ -55,7 +60,7 @@ use POSIX qw(strftime);
 use Net::Netrc;
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
-use constant VERSION => '0.2';
+use constant VERSION => '0.3';
 use constant DEFAULT_DELAY => 15;
 
 # GitHub limits requests to 5000 per hour per authenticated app (and
@@ -208,7 +213,7 @@ sub write_mapfile($)
   my $self = shift;
 
   if (open my $fh, '>', $self->{mapfile}) {
-    foreach my $channel (keys %{$self->{repos}}) {
+    foreach my $channel (keys %{$self->{linenumber}}) {
       printf $fh "channel %s\n", $channel;
       printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel}};
       printf $fh "delay %d\n", $self->{delays}->{$channel} // DEFAULT_DELAY;
@@ -338,29 +343,24 @@ sub add_repositories($$$)
 sub remove_repositories($$$)
 {
   my ($self, $channel, $repos) = @_;
-  my $repositories = $self->{repos}->{$channel} // [];
   my $err = '';
+  my $found = 0;
 
-  return "sorry, this channel has no repositories." if ! @$repositories;
+  return "sorry, this channel has no repositories."
+      if scalar @{$self->{repos}->{$channel}} == 0;
 
-  foreach (split /[ ,]+/, $repos) {
-    my ($repository, $msg) = $self->repository_to_url($channel, $_);
-
-    if ($msg) {
-      $err .= "$msg\n";
-    } else {
-      my $found = 0;
-      my @h = ();
-      foreach (@$repositories) {
-	if ($_ ne $repository) {push @h, $_}
-	else {$found = 1}
-      }
-      $err .= "$repository was already removed.\n" if !$found;
+  foreach my $repo (split /[ ,]+/, $repos) {
+    my @x = grep /(?:^|\/)\Q$repo\E$/, @{$self->{repos}->{$channel}};
+    if (scalar @x) {
+      my @h = grep $_ ne $x[0], @{$self->{repos}->{$channel}};
       $self->{repos}->{$channel} = \@h;
+      $found = 1;
+    } else {
+      $err .= "$repo was already removed.\n";
     }
   }
-  $self->write_mapfile();	       # Write the new list to disk.
-  $self->{history}->{$channel} = {}; # Forget recently expanded issues
+  $self->write_mapfile() if $found;	# Write the new list to disk.
+  $self->{history}->{$channel} = {};	# Forget recently expanded issues
   return $err ? $err : 'OK.';
 }
 
@@ -413,7 +413,6 @@ sub find_repository_for_issue($$$)
   return $repos->[0] =~ s/[^\/]*$/$prefix/r if $prefix && scalar @$repos;
 
   # No recent repo, so we can't guess the owner:
-  $self->log("Channel $channel, cannot infer a repository for $ref");
   return undef;
 }
 
@@ -857,6 +856,8 @@ sub maybe_expand_references($$$$)
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
       $repository = $self->find_repository_for_issue($channel, $ref) or do {
 	$self->log("Channel $channel, cannot infer a repository for $ref");
+	$response .= "I don't know which repository to use for $ref\n"
+	    if $addressed;
 	next;
       };
       # $self->log("Channel $channel $repository/issues/$issue");
@@ -903,6 +904,7 @@ sub status($$)
   $s .= ', names are ' . ($self->{suspend_names}->{$channel} ? 'off' : 'on');
 
   my $t = join ', ', values %{$self->{ignored_nicks}->{$channel}};
+  $t =~ s/(.*),/$1 and/;	# Replace the last ",", if any, by "and"
   $s .= ", commands are ignored from $t" if $t ne '';
 
   if (!defined $repositories || scalar @$repositories == 0) {
@@ -979,19 +981,20 @@ sub is_ignored_nick($$$)
 sub add_ignored_nicks($$$)
 {
   my ($self, $channel, $nicks) = @_;
-  my $reply = "You need to give one or more IRC nicks after \"ignore\".";
+  my $reply = '';
+
+  return 'you need to give one or more IRC nicks after "ignore".'
+      if $nicks eq '';
 
   for my $who (split /[ ,]+/, $nicks) {
     if (defined $self->{ignored_nicks}->{$channel}->{fc $who}) {
-      $self->say({channel => $channel,
-		  body => "$who was already ignored on this channel."});
+      $reply .= "$who was already ignored on this channel.\n"
     } else {
       $self->{ignored_nicks}->{$channel}->{fc $who} = $who;
     }
-    $reply = "OK.";
   }
   $self->write_mapfile();
-  return $reply;
+  return $reply || 'OK';
 }
 
 
@@ -1063,85 +1066,85 @@ sub said($$)
   $self->{linenumber}->{$channel}++;
 
   return $self->part_channel($channel), undef
-      if $addressed && $text =~ /^ *bye *\.? *$/i;
+      if $addressed && $text =~ /^bye *\.?$/i;
 
   return $self->add_repositories($channel, $1)
       if ($addressed &&
-	$text =~ /^ *(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ].*?) *$/i) ||
-      $text =~ /^ *repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*?) *$/i;
+	$text =~ /^(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ].*?)$/i) ||
+      $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*?)$/i;
 
   return $self->remove_repositories($channel, $1)
       if ($addressed &&
-	$text =~ /^ *(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*?) *$/) ||
-      $text =~ /^ *repo(?:s|sitory|sitories)? *(?:-|-[:：]?) *([^ ].*?) *$/i;
+	$text =~ /^(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*?)$/) ||
+      $text =~ /^repo(?:s|sitory|sitories)? *(?:-|-[:：]?) *([^ ].*?)$/i;
 
   return $self->clear_repositories($channel)
-      if $text =~ /^ *repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *$/i;
+      if $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?)$/i;
 
   return $self->set_delay($channel, 0 + $1)
       if $addressed &&
-      $text =~ /^ *(?:set +)?delay *(?: to |=| ) *?([0-9]+) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?delay *(?: to |=| ) *?([0-9]+) *(?:\. *)?$/i;
 
   return $self->status($channel)
-      if $addressed && $text =~ /^ *status *(?:[?.] *)?$/i;
+      if $addressed && $text =~ /^status *(?:[?.] *)?$/i;
 
   return $self->set_suspend_all($channel, 0)
-      if $addressed && $text =~ /^ *on *(?:\. *)?$/i;
+      if $addressed && $text =~ /^on *(?:\. *)?$/i;
 
   return $self->set_suspend_all($channel, 1)
-      if $addressed && $text =~ /^ *off *(?:\. *)?$/i;
+      if $addressed && $text =~ /^off *(?:\. *)?$/i;
 
   return $self->set_suspend_issues($channel, 0)
       if $addressed &&
-      $text =~ /^ *(?:set +)?issues *(?: to |=| ) *(on|yes|true) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true) *(?:\. *)?$/i;
 
   return $self->set_suspend_issues($channel, 1)
       if $addressed &&
-      $text =~ /^ *(?:set +)?issues *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
 
   return $self->set_suspend_names($channel, 0)
       if $addressed &&
-      $text =~ /^ *(?:set +)?(names|persons|teams) *(?: to |=| ) *(on|yes|true) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(on|yes|true) *(?:\. *)?$/i;
 
   return $self->set_suspend_names($channel, 1)
       if $addressed &&
-      $text =~ /^ *(?:set +)?names *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?(:names|persons|teams)(?: +to +| *= *| +)(off|no|false) *(?:\. *)?$/i;
 
   return $self->create_issue($channel, $1)
-      if ($addressed || $do_issues) && $text =~ /^ *issue *: *(.*)$/i &&
+      if ($addressed || $do_issues) && $text =~ /^issue *[:：] *(.*)$/i &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->close_issue($channel, $1)
       if ($addressed || $do_issues) &&
-      ($text =~ /^ *close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-	$text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +closed *$/i) &&
+      ($text =~ /^close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->reopen_issue($channel, $1)
       if ($addressed || $do_issues) &&
-      ($text =~ /^ *reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^ *([a-zA-Z0-9\/._-]*#[0-9]+) +reopened *$/i) &&
+      ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
+         $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2)
       if ($addressed || $do_issues) &&
-      ($text =~ /^ *action +([^:]+?) *: *(.*?) *$/i ||
-	$text =~ /^ *action *: *(.*?) +to +(.*?) *$/i) &&
+      ($text =~ /^action +([^:：]+?) *[:：] *(.*?)$/i ||
+	$text =~ /^action *[:：] *(.*?) +to +(.*?)$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->account_info($channel)
       if $addressed &&
-      $text =~ /^ *(?:who +are +you|account|user|login) *\?? *$/i;
+      $text =~ /^(?:who +are +you|account|user|login) *\??$/i;
 
   return $self->add_ignored_nicks($channel, $1)
-      if $addressed && $text =~ /^ *ignore *(.*?) *$/i;
+      if $addressed && $text =~ /^ignore *(.*?) *$/i;
 
   return $self->remove_ignored_nicks($channel, $1)
-      if $addressed && $text =~ /^ *(?:do +not|don't) +ignore *(.*?) *$/i;
+      if $addressed && $text =~ /^(?:do +not|don't) +ignore *(.*?) *$/i;
 
   return $self->set_github_alias($1, $2)
       if $addressed &&
-      $text =~ /^ *([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+) *$/i;
+      $text =~ /^([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+)$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
@@ -1154,9 +1157,205 @@ sub help($$)
   my $me = $self->nick();		# Our own name
   my $text = $info->{body};		# What Nick said
 
-  return 'I am an IRC bot that expands references to GitHub issues ' .
-      '("#7") and GitHub users ("@jbhotp") to full URLs. I am an instance ' .
-      'of ' . blessed($self) . ' ' . VERSION . '. See ' . MANUAL;
+  return
+      "for help on commands, try \"$me, help x\",\n" .
+      "where x is one of:\n" .
+      "#, @, use, discussing, discuss, using, take up, taking up,\n" .
+      "this will be, this is, repo, repos, repository, repositories,\n" .
+      "forget, drop, remove, don't use, do not use, issue, action, set,\n" .
+      "delay, status, on, off, issues, names, persons, teams, invite,\n" .
+      "is, =, ignore, don't ignore, do not ignore, who are you,\n" .
+      "account, user, login, close, reopen, bye.\n" .
+      "Example: \"$me, help #\"."
+      if $text =~ /\bcommands\b/i;
+
+  return
+      "when I see \"xxx/yyy#nn\" or \"yyy#nn\" or \"#nn\" (where nn is\n" .
+      "an issue number, yyy the name of a GitHub repository and xxx\n" .
+      "the name of a repository owner), I will print the URL to that\n" .
+      "issue and try to retrieve a summary.\n" .
+      "See also \"$me, help use\" for setting the default repositories.\n" .
+      "Example: \"#1\"."
+      if $text =~ /#/;
+
+  return
+      "when I see \"\@abc\" (where abc is any name), I will print\n" .
+      "the URL of the user or team of that name on GitHub.\n" .
+      "Example: \"\@w3c\".\n"
+      if $text =~ /@/;
+
+  return
+      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\"\n" .
+      "adds repository xxx/yyy to my list of known repositories\n" .
+      "and makes it the default. If you create issues and action\n" .
+      "items, they will be created in this repository. If you omit xxx,\n" .
+      "it will be copied from the next repository in my list, or \"w3c\"\n" .
+      "if there is none. You can give more than one repository,\n" .
+      "separated by commas or spaces. Aliases: use, discussing,\n" .
+      "discuss, using, take up taking up, this will be, this is.\n" .
+      "See also \"$me, help repo\". Example: \"$me, $1 w3c/rdf-star\"."
+      if $text =~ /\b(use|discussing|discuss|using|take +up|taking +up|this +will +be|this +is)\b/i;
+
+  return
+      "the command \"$1: xxx/yyy\" or \"$1: yyy\" adds repository\n" .
+      "xxx/yyy to my list of known repositories and makes it the\n" .
+      "default. If you create issues and action items, they will be\n" .
+      "created in this repository. If you omit xxx, it will be the copied\n" .
+      "from the next repository in my list, or \"w3c\" if there is none.\n" .
+      "You can give more than one repository. Use commas or\n" .
+      "spaces to separate them. Aliases: repo, repos, repository,\n" .
+      "repositories. See also \"$me, help use\".\n" .
+      "Example: \"$1: w3c/rdf-star\"."
+      if $text =~ /\b(repo|repos|repository|repositories)\b/i;
+
+  return
+      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\"\n" .
+      "removes repository xxx/yyy from my list of known\n" .
+      "repositories. If you omit xxx, I remove the first in the list\n" .
+      "whose name is xxx. If the removed repository was the default,\n" .
+      "the second in the list will now be the default.\n" .
+      "Aliases: forget, drop, remove, don't use, do not use."
+      if $text =~ /\b(forget|drop|remove|don't +use|do +not +use)\b/i;
+
+  return
+      "the command \"issue: ...\" creates a new issue in the default\n" .
+      "repository on GitHub. See \"$me, help use\" for how to set\n" .
+      "the default repository. Example: \"issue: Section 1.1 is wrong\".\n"
+      if $text =~ /\bissue\b/i;
+
+  return
+      "the command \"action: john to ...\" or \"action john: ...\"\n" .
+      "creates an action item (in fact, an issue with an assignee and\n" .
+      "a due date) in the default repository on GitHub. If you end the\n" .
+      "text with \"due\" and a date, the due date will be that date.\n" .
+      "Otherwise the due date will be one week after today.\n" .
+      "The date can be specified in many ways, such as \"Apr 2\" and\n" .
+      "\"next Thursday\". See \"$me, help use\" for how to set the\n" .
+      "default repository. See \"$me, help is\" for defining aliases\n" .
+      "for usernames.\n" .
+      "Example: \"action john: solve #1 due in 2 weeks."
+      if $text =~ /\baction\b/i;
+
+  return
+      "\"set\" is used to set certain parameters, see\n" .
+      "\"$me, help delay\", \"$me, help issues\" and\n" .
+      "\"$me, help names\"."
+      if $text =~ /\bset\b/i;
+
+  return
+      "normally, I will not look up an issue on GitHub if I\n" .
+      "already did it less than 15 lines ago. The command\n" .
+      "\"$me, delay nn\", or \"$me, delay = nn\", or\n" .
+      "\"$me, set delay nn\" or \"$me, set delay to nn\"\n" .
+      "changes the number of lines from 15 to nn.\n" .
+      "Example: \"$me, delay 0\""
+      if $text =~ /\bdelay\b/i;
+
+  return
+      "if you say \"$me, status\" or \"$me, status?\" I will print\n" .
+      "my current list of repositories, the current delay, whether I'm\n" .
+      "looking up issues, and which IRC users I'm ignoring.\n" .
+      "Example: \"$me, status?\""
+      if $text =~ /\bstatus\b/i;
+
+  return
+      "the command \"$me, on\" tells me to start creating and\n" .
+      "looking up issues on GitHub again and to show URLs for\n" .
+      "GitHub user names, if I was previously told to stop doing so\n" .
+      "with \"$me, off\". See also \"$me, help issues\" and\n" .
+      "\"$me, help names\"."
+      if $text =~ /\bon\b/i;
+
+  return
+      "the command \"$me, off\" tells me to stop creating and\n" .
+      "looking up issues on GitHub and to stop showing URLs for\n" .
+      "GitHub user names. Use \"$me, on\" to tell me to start again.\n" .
+      "See also \"$me, help issues\" and \"$me, help names\"."
+      if $text =~ /\boff\b/i;
+
+  return
+      "the command \"$me, issues off\" or \"$me, issues = off\"\n" .
+      "or \"$me, set issues off\" or \"$me, set issues to off\"\n" .
+      "tells me to stop creating and looking up issues on GitHub.\n" .
+      "The same with \"on\" instead of \"off\" tells me to start again.\n" .
+      "See also \"$me, help on\", \"$me, help off\" and\n" .
+      "\"$me, help names\"."
+      if $text =~ /\bissues\b/i;
+
+  return
+      "the command \"$me, $1 off\" or\n" .
+      "\"$me, $1 = off\" or \"$me, set $1 off\" or\n" .
+      "\"$me, set $1 to off\" tells me to stop showing URLs for\n" .
+      "GitHub user names (such as \"\@w3c\"). Replace \"off\"\n" .
+      "by \"on\" to tell me to start again. See also\n" .
+      "\"$me, help on\", \"$me, help off\" and \"$me, help issues\"."
+      if $text =~ /\b(names|persons|teams)\b/i;
+
+  return
+      "the command \"/invite $me\" (note the \"/\") invites me\n" .
+      "to join this channel. See also \"$me, bye\" for how to\n" .
+      "dismiss me from the channel."
+      if $text =~ /\binvite\b/i;
+
+  return
+      "the command \"$me, aaa $1 bbb\" defines that aaa is\n" .
+      "an alias for the person with the username bbb on GitHub.\n" .
+      "You can add \"@\" in front of the GitHub username, if you wish.\n" .
+      "Typically this command serves to define an equivalence\n" .
+      "between an IRC nickname and a GitHub username, so that\n" .
+      "you can say \"action aaa:...\", where aaa is an IRC nick.\n" .
+      "Aliases: is, =. Example: \"$me, denis $1 \@deniak\"."
+      if $text =~ /(\bis\b|=)/i;
+
+  return
+      "the command \"$me, $1 aaa\" tells me to stop\n" .
+      "ignoring messages on IRC from user aaa.\n" .
+      "See also \"$me, help ignore\".\n" .
+      "Example: \"$me, $1 agendabot\"."
+      if $text =~ /\b(don't +ignore|do +not +ignore)\b/i;
+
+  return
+      "the command \"$me, ignore aaa\" tells me to ignore\n" .
+      "messages on IRC from user aaa.\n" .
+      "See also \"$me, help don't ignore\".\n" .
+      "Example: \"$me, ignore rrsagent\"."
+      if $text =~ /\bignore\b/i;
+
+  return
+      "I will respond to the command \"$me, $1\"\n" .
+      "or \"$me, $1?\" with the username that I use on GitHub.\n" .
+      "Aliases: who are you, account, user, login."
+      if $text =~ /\b(who +are +you|account|user|login)\b/i;
+
+  return
+      "the command \"close #nn\" or \"close yyy#nn\" or\n" .
+      "\"close xxx/yyy#nn\" tells me to close GitHub issue number nn\n" .
+      "in repository xxx/yyy. If you omit xxx or xxx/yyy, I will find\n" .
+      "the repository in my list of repositories.\n" .
+      "See also \"$me, help use\" for creating a list of repositories.\n" .
+      "Example: \"close #1\"."
+      if $text =~ /\bclose\b/i;
+
+  return
+      "the command \"reopen #nn\" or \"reopen yyy#nn\" or\n" .
+      "\"reopen xxx/yyy#nn\" tells me to reopen GitHub issue\n" .
+      "number nn in repository xxx/yyy. If you omit xxx or xxx/yyy,\n" .
+      "I will find the repository in my list of repositories.\n" .
+      "See also \"$me, help use\" for creating a list of repositories.\n" .
+      "Example: \"reopen #1\"."
+      if $text =~ /\breopen\b/i;
+
+  return
+      "the command \"$me, bye\" tells me to leave this channel.\n" .
+      "See also \"$me help invite\"."
+      if $text =~ /\bbye\b/i;
+
+  return
+      "I am a bot to look up and create GitHub issues and\n" .
+      "action items. I am an instance of " .
+      blessed($self) . " " . VERSION . ".\n" .
+      "Try \"$me, help commands\" or\n" .
+      "see " . MANUAL;
 }
 
 
