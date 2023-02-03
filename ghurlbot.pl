@@ -9,8 +9,6 @@
 #
 # TODO: Allow "action-9" as an alternative for "#9"?
 #
-# TODO: Search for issues in a repository by label?
-#
 # TODO: Add a permission system to limit who can create, close or
 # reopen issues? (Maybe people on IRC can somehow prove to ghurlbot
 # that they have a GitHub account and maybe ghurlbot can find out if
@@ -25,12 +23,13 @@
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
 #
-# TODO: When creating an action, check in the response from GitHub
-# that the label "action" has actually been set and that the assignee
-# has been accepted, because GitHub silently drops them if ghurlbot
-# does not have push access to the repository, while still responding
-# with a 201. See
-# https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28#create-an-issue
+# TODO: Get plain text instead of markdown from GitHub? (Requires
+# setting the Accept header to "application/vnd.github.text+json" and
+# using the "body_text" field instead of "body" from the returned
+# JSON.)
+#
+# TODO: When listing issues and the result has 100 items, check if
+# there are more and if so, say so on IRC.
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -60,11 +59,13 @@ use File::Temp qw(tempfile tempdir);
 use File::Copy;
 use LWP;
 use LWP::ConnCache;
-use JSON::PP;
+# use JSON::PP;
+use JSON;
 use Date::Manip::Date;
 use Date::Manip::Delta;
 use POSIX qw(strftime);
 use Net::Netrc;
+use Encode qw(str2bytes bytes2str);
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant VERSION => '0.3';
@@ -332,16 +333,9 @@ sub add_repositories($$$)
   $self->{history}->{$channel} = {}; # Forget recently expanded issues
 
   return $err if $err;
-  return "OK. But note that I'm currently off. " .
-      "Please use: ".$self->nick().", on"
-      if defined $self->{suspend_issues}->{$channel} &&
-      defined $self->{suspend_names}->{$channel};
-  return "OK. But note that only names are expanded. " .
-      "To also expand issues, please use: ".$self->nick().", set issues to on"
+  return "OK. But note that I am not currently expanding issues. " .
+      "You can change that with: ".$self->nick()." issues on"
       if defined $self->{suspend_issues}->{$channel};
-  return "OK. But note that only issues are expanded. " .
-      "To also expand names, please use: ".$self->nick().", set names to on"
-      if defined $self->{suspend_names}->{$channel};
   return 'OK.';
 }
 
@@ -381,16 +375,11 @@ sub clear_repositories($$)
 }
 
 
-# find_repository_for_issue -- expand issue reference to full URL, or undef
-sub find_repository_for_issue($$$)
+# find_matching_repository -- return the repository that matches $prefix
+sub find_matching_repository($$$)
 {
-  my ($self, $channel, $ref) = @_;
-  my ($prefix, $issue, $repos, @matchingrepos);
-
-  ($prefix, $issue) = $ref =~ /^((?:[a-z0-9\/._-]+)?)#([0-9]+)$/i or do {
-    $self->log("Bug! wrong argument to find_repository_for_issue()");
-    return undef;
-  };
+  my ($self, $channel, $prefix) = @_;
+  my ($repos, @matchingrepos);
 
   $repos = $self->{repos}->{$channel} // [];
 
@@ -407,8 +396,8 @@ sub find_repository_for_issue($$$)
   # otherwise if there two repos "rdf-star" and
   # "rdf-star-wg-charter", you can never get to the former,
   # because it is a prefix of the latter.)
-  @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/, @$repos or
-      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/, @$repos;
+  @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/i, @$repos or
+      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/i, @$repos;
 
   # Found one or more repos whose name starts with $prefix:
   return $matchingrepos[0] if @matchingrepos;
@@ -423,6 +412,18 @@ sub find_repository_for_issue($$$)
   return undef;
 }
 
+
+# find_repository_for_issue -- expand issue reference to full URL, or undef
+sub find_repository_for_issue($$$)
+{
+  my ($self, $channel, $ref) = @_;
+
+  my ($prefix, $issue) = $ref =~ /^([a-z0-9\/._-]*)#([0-9]+)$/i or
+      $self->log("Bug! wrong argument to find_repository_for_issue()") and
+      return undef;
+
+  return $self->find_matching_repository($channel, $prefix);
+}
 
 # name_to_login -- return the github name for a name, otherwise return the name
 sub name_to_login($$)
@@ -467,7 +468,7 @@ sub check_and_update_rate($$)
 sub create_action_process($$$$$$)
 {
   my ($body, $self, $channel, $repository, $names, $text) = @_;
-  my (@names, $res, $content, $date, $due, $today);
+  my (@names, @labels, $res, $content, $date, $due, $today);
 
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
@@ -503,7 +504,7 @@ sub create_action_process($$$$$$)
     Content => encode_json({title => $text, assignees => \@names,
 			    body => "due $due", labels => ['action']}));
 
-  print STDERR "Channel $channel new action \"$text\" in $repository -> ",
+  print STDERR "Channel $channel, new action \"$text\" in $repository -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -521,10 +522,21 @@ sub create_action_process($$$$$$)
   } elsif ($res->code != 201) {
     print "Cannot create action. Error ".$res->code."\n";
   } else {
+    # Issues created. Check that label and assignees were also added.
     $content = decode_json($res->decoded_content);
-    @names = ();
-    push @names, $_->{login} foreach @{$content->{assignees}};
-    print "Created -> action $content->{number} $content->{html_url}\n";
+    my %n; $n{fc $_->{login}} = 1 foreach @{$content->{assignees}};
+    @names = grep !exists $n{fc $_}, @names; # Remove names that were assigned
+    if (! @{$content->{labels}}) {
+      print "I created -> issue $content->{number} $content->{html_url}\n",
+	  "but I could not add the \"action\" label.\n",
+	  "That probably means I don't have push permission on $repository.\n";
+    } elsif (@names) {		# Some names were not assigned
+      print "I created -> action $content->{number} $content->{html_url}\n",
+	  "but I could not assign it to ", join(", ", @names), "\n",
+	  "They probably do not have sufficient permissions on $repository.\n";
+    } else {
+      print "Created -> action $content->{number} $content->{html_url}\n";
+    }
   }
 }
 
@@ -565,7 +577,7 @@ sub create_issue_process($$$$)
     "https://api.github.com/repos/$repository/issues",
     Content => encode_json({title => $text}));
 
-  print STDERR "Channel $channel new issue \"$text\" in $repository -> ",
+  print STDERR "Channel $channel, new issue \"$text\" in $repository -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -625,7 +637,7 @@ sub close_issue_process($$$$$)
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'closed'}));
 
-  print STDERR "Channel $channel close $repository#$issuenumber -> ",
+  print STDERR "Channel $channel, close $repository#$issuenumber -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -688,7 +700,7 @@ sub reopen_issue_process($$$$)
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     Content => encode_json({state => 'open'}));
 
-  print STDERR "Channel $channel reopen $repository#$issuenumber -> ",
+  print STDERR "Channel $channel, reopen $repository#$issuenumber -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -749,9 +761,9 @@ sub account_info_process($$$)
   my ($res, $content, $issuenumber);
 
   $res = $self->{ua}->get("https://api.github.com/user",
-    'Accept' => 'application/vnd.github.v3+json');
+    'Accept' => 'application/json');
 
-  print STDERR "Channel $channel user account -> ", $res->code, "\n";
+  print STDERR "Channel $channel, user account -> ", $res->code, "\n";
 
   if ($res->code == 403) {
     print "Cannot read account. Forbidden.\n";
@@ -810,9 +822,9 @@ sub get_issue_summary_process($$$$)
 
   $res = $self->{ua}->get(
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
-    'Accept' => 'application/vnd.github.v3+json');
+    'Accept' => 'application/json');
 
-  print STDERR "Channel $channel info $repository#$issue -> ",$res->code,"\n";
+  print STDERR "Channel $channel, info $repository#$issue -> ",$res->code,"\n";
 
   if ($res->code == 404) {
     print "$repository/issues/$issue -> Issue $issue [not found]\n";
@@ -874,7 +886,7 @@ sub maybe_expand_references($$$$)
 
     } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
-      $self->log("Channel $channel name https://github.com/$name");
+      $self->log("Channel $channel, name https://github.com/$name");
       $response .= "https://github.com/$name -> \@$name\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
@@ -1044,6 +1056,74 @@ sub set_github_alias($$$)
 }
 
 
+# find_issues_process -- process to get a list of issues/actions with criteria
+sub find_issues_process($$$$$$$$$$)
+{
+  my ($body, $self, $channel, $who, $state, $type, $labels, $creator,
+    $assignee, $repo) = @_;
+  my ($owner, $res, $ref, $q, $s);
+
+  if (!defined $self->{ua}) {
+    print "Sorry, I don't have a GitHub account\n";
+    return;
+  }
+
+  $repo = $self->find_matching_repository($channel, $repo // '') or
+      print "Sorry, I don't know what repository to use." and
+      return;
+  ($owner, $repo) =
+      $repo =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
+      print "The repository must be on GitHub for searching to work.\n" and
+      return;
+
+  $type = lc $type;
+
+  # TODO: Find out if there are more than 100 results and, if so, warn
+  # that the list is not complete.
+
+  $labels =~ s/ //g if $labels;
+  $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
+  $q = "per_page=100&state=$state";
+  $creator = $who if $creator && lc $creator eq 'me';
+  $assignee = $who if $assignee && lc $assignee eq 'me';
+  $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
+  $q .= "&creator=" . esc($self->name_to_login($creator)) if $creator;
+  $q .= "&labels=" . esc($labels) if $labels;
+  $res = $self->{ua}->get(
+    "https://api.github.com/repos/$owner/$repo/issues?$q",
+    Accept => 'application/json');
+
+  print STDERR "Channel $channel, list $q in $owner/$repo -> ",$res->code,"\n";
+
+  if ($res->code == 404) {
+    print "Not found\n";
+    return;
+  } elsif ($res->code == 422) {
+    print "Validation failed\n";
+    return;
+  } elsif ($res->code != 200) {
+    print STDERR "  ", $res->decoded_content, "\n";
+    print "Error ", $res->code, "\n";
+    return;
+  }
+
+  $ref = decode_json($res->decoded_content);
+  $s = join(", ", map("#".$_->{number}, @$ref));
+  print "Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
+}
+
+
+# find_issues -- get a list of issues or actions with criteria
+sub find_issues($$$$$$$$)
+{
+  my ($self,$channel,$who,$state,$type,$labels,$creator,$assignee,$repo) = @_;
+
+  $self->forkit(run => \&find_issues_process, channel => $channel,
+    arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
+      $assignee, $repo]);
+}
+
+
 # invited -- do something when we are invited
 sub invited($$)
 {
@@ -1096,26 +1176,26 @@ sub said($$)
       if $addressed && $text =~ /^status *(?:[?.] *)?$/i;
 
   return $self->set_suspend_all($channel, 0)
-      if $addressed && $text =~ /^on *(?:\. *)?$/i;
+      if $addressed && $text =~ /^on(?: *\.)?$/i;
 
   return $self->set_suspend_all($channel, 1)
-      if $addressed && $text =~ /^off *(?:\. *)?$/i;
+      if $addressed && $text =~ /^off(?: *\.)?$/i;
 
   return $self->set_suspend_issues($channel, 0)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true)(?: *\.)?$/i;
 
   return $self->set_suspend_issues($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false)(?: *\.)?$/i;
 
   return $self->set_suspend_names($channel, 0)
       if $addressed &&
-      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(on|yes|true) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(on|yes|true)(?: *\.)?$/i;
 
   return $self->set_suspend_names($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?(:names|persons|teams)(?: +to +| *= *| +)(off|no|false) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?(:names|persons|teams)(?: +to +| *= *| +)(off|no|false)(?: *\.)?$/i;
 
   return $self->create_issue($channel, $1)
       if ($addressed || $do_issues) && $text =~ /^issue *[:：] *(.*)$/i &&
@@ -1124,13 +1204,13 @@ sub said($$)
   return $self->close_issue($channel, $1)
       if ($addressed || $do_issues) &&
       ($text =~ /^close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed$/i) &&
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->reopen_issue($channel, $1)
       if ($addressed || $do_issues) &&
       ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened$/i) &&
+         $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2)
@@ -1144,7 +1224,7 @@ sub said($$)
       $text =~ /^(?:who +are +you|account|user|login) *\??$/i;
 
   return $self->add_ignored_nicks($channel, $1)
-      if $addressed && $text =~ /^ignore *(.*?) *$/i;
+      if $addressed && $text =~ /^ignore *(.*?)$/i;
 
   return $self->remove_ignored_nicks($channel, $1)
       if $addressed && $text =~ /^(?:do +not|don't) +ignore *(.*?) *$/i;
@@ -1152,6 +1232,11 @@ sub said($$)
   return $self->set_github_alias($1, $2)
       if $addressed &&
       $text =~ /^([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+)$/i;
+
+  return $self->find_issues($channel, $who, $1 // "open", $2 // "issues",
+    $3, $4, $5, $6)
+      if $addressed &&
+      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +([^ ].*?))*(?: *\.)?$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
@@ -1171,9 +1256,9 @@ sub help($$)
       "this will be, this is, repo, repos, repository, repositories,\n" .
       "forget, drop, remove, don't use, do not use, issue, action, set,\n" .
       "delay, status, on, off, issues, names, persons, teams, invite,\n" .
-      "is, =, ignore, don't ignore, do not ignore, who are you,\n" .
-      "account, user, login, close, reopen, bye.\n" .
-      "Example: \"$me, help #\"."
+      "list, search, find, get, look up, is, =, ignore, don't ignore,\n" .
+      "do not ignore, who are you, account, user, login, close, reopen,\n" .
+      "bye.  Example: \"$me, help #\"."
       if $text =~ /\bcommands\b/i;
 
   return
@@ -1358,6 +1443,17 @@ sub help($$)
       if $text =~ /\bbye\b/i;
 
   return
+      "the command \"$me, $1\" lists at most 100 most recent open issues.\n" .
+      "It can optionally be followed by \"open\", \"closed\" or \"all\",\n" .
+      "optionally followed by \"issues\" or \"actions\, followed by zero\n" .
+      "or more conditions: \"with labels label1, label2...\" or\n" .
+      "\"for name\" or \"by name\" or \"from repo\". I will list the\n" .
+      "issues or actions that match those conditions.\n" .
+      "Example: \"$1 closed actions for joe from w3c/rdf-star\".\n" .
+      "Aliases: find, look up, get, search, search for, list."
+      if $text =~ /\b(find|look +up|get|search|search +for|list)/i;
+
+  return
       "I am a bot to look up and create GitHub issues and\n" .
       "action items. I am an instance of " .
       blessed($self) . " " . VERSION . ".\n" .
@@ -1388,6 +1484,18 @@ sub log
     $self->SUPER::log(
       map /^\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ/ ? $_ : "$now $_", @messages);
   }
+}
+
+
+# esc -- escape characters for use in the value of a URL query parameter
+sub esc($)
+{
+  my ($s) = @_;
+  my ($octets);
+
+  $octets = str2bytes("UTF-8", $s);
+  $octets =~ s/([^A-Za-z0-9._~!$'()*+,=:@\/?-])/"%".sprintf("%02x",ord($1))/eg;
+  return bytes2str("UTF-8", $octets);
 }
 
 

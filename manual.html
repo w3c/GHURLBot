@@ -80,6 +80,10 @@
 	<td><a href="#reopen">Reopen an issue or action</a></td>
       </tr>
       <tr>
+	<td class=command><code>ghurlbot, list open issues with label foo</code>
+	<td><a href="#search">List issues/actions with various criteria</a></td>
+      </tr>
+      <tr>
 	<td class=command><code>/invite ghurlbot</code></td>
 	<td><a href="#invite">Invite ghurlbot to the current
 	channel</a></td>
@@ -143,6 +147,11 @@
       </tr>
   </table>
 
+  <p>Commands for ghurlbot, as well as names of repositories and names
+    of people, are case-insensitive. E.g., ‘issue’ can also be written
+    as ‘ISSUE’ or ‘iSSue’; and ‘use w3c/scribe2’ can also be written
+    as ‘USE W3C/SCRIBE2’ or ‘Use W3c/Scribe2’.</p>
+
   <h2 id=info>IRC command to link to an issue</h2>
 
   <p>When somebody types something that looks like a repository name
@@ -168,7 +177,8 @@
     see <a href="#account" >‘GitHub account’</a>. (Ghurlbot may also
     fail due to network problems.)</p>
 
-  <p>If you have told ghurlbot what repositories you are discussing
+  <p id=abbreviate>If you have told ghurlbot what repositories you are
+    discussing
     (see <a href="#repo">below</a>), you can abbreviate the repository
     name, or even omit it:</p>
 
@@ -285,7 +295,7 @@
 
   <pre class=command>&lt;joe&gt; Issue: is the default 1 or 0?</pre>
 
-  <p>Case does not matter, ‘ISSUE’, ‘issue’ or ‘iSSue’ works also. The
+  <p>The
     issue will be created in the repository that is at the top of
     ghurlbot's list. To create an issue in another repository, you
     need to move it to the top first.</p>
@@ -332,7 +342,7 @@
 &lt;joe&gt; close #13
 &lt;joe&gt; close w3c/aria#17</pre>
 
-  <p>Case does not matter, ‘CLOSE’, ‘Close’ or ‘ClosE’ works also. The
+  <p>The
     issue number can include the full name of the repository or an
     abbreviation, see <a href="#info" >‘IRC command to link to an
     issue: #’</a>.
@@ -343,6 +353,61 @@
     with <code>reopen</code>, followed by an issue number, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; reopen #15</pre>
+
+  <h2 id=search>List issues or actions</h2>
+
+  <p>You can ask for lists of issues or actions:</p>
+
+  <pre class=command>&lt;joe&gt; list open issues
+&lt;joe&gt; list closed actions
+&lt;joe&gt; list all actions</pre>
+
+  <p>The answer will be something like:</p>
+
+  <pre class=command>&lt;ghurlbot&gt; #20, #15, #14</pre>
+
+  <p>Instead of <code>list</code>, you can also
+    say <code>find</code>, <code>look
+    up</code>, <code>get</code>, <code>search</code> or <code>search
+    for</code>.</p>
+
+  <p>You can search for <code>issues</code> or <code>actions</code>.
+    If you omit the word, ghurlbot will search for issues. (Note that
+    actions are a special kind of issues, so searching for issues will
+    also return actions.) You can search
+    for <code>open</code>, <code>closed</code> or <code>all</code>
+    issues. If you omit the word, ghurlbot will search for open
+    issues. Thus the command</p>
+
+  <pre class=command>ghurlbot, list</pre>
+
+  <p>means <code>list open issues</code>.</p>
+
+  <p>You can add criteria to restrict the results:</p>
+
+  <ul>
+    <li><code>from myrepo</code> will list issues from ‘myrepo’
+      instead of the repository that was added last. The name of the
+      repository may be <a href="#abbreviate">abbreviated</a> exactly
+      like when referencing issues.</li>
+
+    <li><code>with label foo</code> or <code>with labels foo,
+      bar</code> will limit the results to issues with all of the
+      given labels.</li>
+
+    <li><code>by joe</code> will only return issues that were created
+      by joe.</li>
+
+    <li><code>for joe</code> will return issues assigned to joe.
+      Instead of a name, you can also say <code>me</code>.</li>
+  </ul>
+
+  <p>You can add one, two, three or four criteria. E.g.:</p>
+
+  <pre class=command>&lt;joe&gt; ghurlbot, list actions for me from rdf-star</pre>
+
+  <p>If the result contains more than 100 issues, ghurlbot will list
+    only the 100 highest numbers.</p>
 
   <h2 id=ignore>IRC nicks that should not open or close issues &amp;
     actions</h2>
@@ -519,4 +584,4 @@
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
     >&lt;bert@w3.org&gt;</a> on 12&nbsp;January 2022. Last updated
-    $Date: Wed Dec 21 22:18:00 2022 UTC $ by $Author: Bert Bos $</address>
+    $Date: Fri Feb  3 15:12:38 2023 UTC $ by $Author: Bert Bos $</address>
