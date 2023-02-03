@@ -527,15 +527,15 @@ sub create_action_process($$$$$$)
     my %n; $n{fc $_->{login}} = 1 foreach @{$content->{assignees}};
     @names = grep !exists $n{fc $_}, @names; # Remove names that were assigned
     if (! @{$content->{labels}}) {
-      print "I created -> issue $content->{number} $content->{html_url}\n",
+      print "I created -> issue #$content->{number} $content->{html_url}\n",
 	  "but I could not add the \"action\" label.\n",
 	  "That probably means I don't have push permission on $repository.\n";
     } elsif (@names) {		# Some names were not assigned
-      print "I created -> action $content->{number} $content->{html_url}\n",
+      print "I created -> action #$content->{number} $content->{html_url}\n",
 	  "but I could not assign it to ", join(", ", @names), "\n",
-	  "They probably do not have sufficient permissions on $repository.\n";
+	  "They probably aren't collaborators on $repository.\n";
     } else {
-      print "Created -> action $content->{number} $content->{html_url}\n";
+      print "Created -> action #$content->{number} $content->{html_url}\n";
     }
   }
 }
@@ -596,7 +596,7 @@ sub create_issue_process($$$$)
     print "Cannot create issue. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Created -> issue $content->{number} $content->{html_url}",
+    print "Created -> issue #$content->{number} $content->{html_url}",
 	" $content->{title}\n";
   }
 }
@@ -657,9 +657,9 @@ sub close_issue_process($$$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print "Closed -> action $content->{number} $content->{html_url}\n";
+      print "Closed -> action #$content->{number} $content->{html_url}\n";
     } else {
-      print "Closed -> issue $content->{number} $content->{html_url}\n";
+      print "Closed -> issue #$content->{number} $content->{html_url}\n";
     }
   }
 }
@@ -721,12 +721,12 @@ sub reopen_issue_process($$$$)
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
       $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $content->{body} // '';
-      print "Reopened -> action $content->{number} $content->{html_url} ",
+      print "Reopened -> action #$content->{number} $content->{html_url} ",
 	  "$content->{title} (on ",
 	  join(', ', map($_->{login}, @{$content->{assignees}})),
 	  ")$comment\n";
     } else {
-      print "Reopened -> issue $content->{number} $content->{html_url} ",
+      print "Reopened -> issue #$content->{number} $content->{html_url} ",
 	  "$content->{title}\n";
     }
   }
