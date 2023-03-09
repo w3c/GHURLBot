@@ -1084,8 +1084,8 @@ sub find_issues_process($$$$$$$$$$)
   $labels =~ s/ //g if $labels;
   $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
   $q = "per_page=100&state=$state";
-  $creator = $who if $creator && lc $creator eq 'me';
-  $assignee = $who if $assignee && lc $assignee eq 'me';
+  $creator = $who if $creator && $creator =~ /^m[ey]$/i;
+  $assignee = $who if $assignee && $assignee =~ /^m[ey]$/i;
   $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
   $q .= "&creator=" . esc($self->name_to_login($creator)) if $creator;
   $q .= "&labels=" . esc($labels) if $labels;
@@ -1233,12 +1233,20 @@ sub said($$)
       if $addressed &&
       $text =~ /^([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+)$/i;
 
-  return $self->find_issues($channel, $who, $1 // "open", $2 // "issues",
-    $3, $4, $5, $6)
+  return $self->find_issues($channel, $who, $2 // "open", $3 // "issues",
+    $4, $5, $6 // $1, $7)
       if $addressed &&
-      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +([^ ].*?))*(?: *\.)?$/i;
+      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +([^ ].*?))*(?: *\.)?$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
+}
+
+
+# emoted -- handle a /me message
+sub emoted($$)
+{
+  my ($self, $info) = @_;
+  return $self->said($info);
 }
 
 
