@@ -4,10 +4,9 @@ GHURLBot is an IRC bot that provides full URLs when GitHub issues
     <joe> Let's discuss issue #13.
     <ghurlbot> https://github.com/xxx/yyy/issues/13 -> #13
 
-When started with an access token for a GitHub account, it can also
-look up issue summaries in a GitHub repository, create new issues and
-action items, or close them. (This assumes, of course, that the GitHub
-repository allows access by the account the bot is using.)
+When started with a GitHub personal access token, it can also
+**look up issues** in a GitHub repository, **create new issues and
+action items,** or **close** them.
 
 Instructions for running the bot and descriptions of the command-line
 options are included in the `ghurlbot.pl` file. Download the file and
