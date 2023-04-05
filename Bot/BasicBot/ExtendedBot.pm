@@ -398,20 +398,10 @@ sub connect_server
 }
 
 
-# eval_error -- get or set a remembered error message
-sub eval_error
-{
-  my $self = shift;
-  $self->{eval_error} = shift if @_;
-  return $self->{eval_error};
-}
-
-
 # die_state -- handle a DIE event
 sub die_state
 {
   my ($kernel, $self, $ex) = @_[KERNEL, OBJECT, ARG1];
-  $self->eval_error($ex->{error_str});
   warn $ex->{error_str};
   $self->{IRCOBJ}->yield('shutdown');
   $kernel->sig_handled();
@@ -865,16 +855,6 @@ C<server>, C<port>, C<password>, C<ssl>, C<localaddr>, C<useipv6>,
 C<nick>, C<alt_nicks>, C<username>, C<name>, C<channels>,
 C<quit_message>, C<ignore_list>, C<charset>, C<flood>, C<no_run> and
 C<webirc>.
-
-=head2 C<eval_error>
-
-If the bot calls C<die>, the error message is stored and can be
-retrieved later with this method.
-
- my $bot = Bot::BasicBot::ExtendedBot->new(...);
- $bot->run();
- print $bot->eval_error() if $bot->eval_error();
- exit defined $bot->eval_error();
 
 =head1 OTHER METHODS
 
