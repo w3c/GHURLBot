@@ -510,17 +510,19 @@ sub create_action_process($$$$$$)
   if ($res->code == 403) {
     print "Cannot create action. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot create action. Insufficient or expired authorization.\n";
+    print "Cannot create action. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create action. Repository not found.\n";
+    print "Cannot create action. Please, check that I have write access to $repository\n";
   } elsif ($res->code == 410) {
-    print "Cannot create action. Repository is gone.\n";
+    print "Cannot create action. The repository $repository is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot create action. Validation failed. (Invalid user for this repository?)\n";
+    print "Cannot create action. Validation failed. Maybe ",
+	scalar @names > 1 ? "one of the names" : $names[0],
+	" is not a valid user for $repository?\n";
   } elsif ($res->code == 503) {
     print "Cannot create action. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot create action. Error ".$res->code."\n";
+    print "Cannot create action. Error ", $res->code, "\n";
   } else {
     # Issues created. Check that label and assignees were also added.
     $content = decode_json($res->decoded_content);
@@ -546,6 +548,9 @@ sub create_action($$$)
 {
   my ($self, $channel, $names, $text) = @_;
   my $repository;
+
+  return "Sorry, I cannot create actions, because I am running without " .
+      "an access token for GitHub." if !defined $self->{github_api_token};
 
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
@@ -583,17 +588,17 @@ sub create_issue_process($$$$)
   if ($res->code == 403) {
     print "Cannot create issue. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot create issue. Insufficient or expired authorization.\n";
+    print "Cannot create issue. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create issue. Repository not found.\n";
+    print "Cannot create issue.  Please, check that I have write access to $repository.\n";
   } elsif ($res->code == 410) {
-    print "Cannot create issue. Repository is gone.\n";
+    print "Cannot create issue. The repository $repository is gone.\n";
   } elsif ($res->code == 422) {
     print "Cannot create issue. Validation failed.\n";
   } elsif ($res->code == 503) {
     print "Cannot create issue. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot create issue. Error ".$res->code."\n";
+    print "Cannot create issue. Error ", $res->code, "\n";
   } else {
     $content = decode_json($res->decoded_content);
     print "Created -> issue #$content->{number} $content->{html_url}",
@@ -607,6 +612,9 @@ sub create_issue($$$)
 {
   my ($self, $channel, $text) = @_;
   my $repository;
+
+  return "Sorry, I cannot create issues, because I am running without " .
+      "an access token for GitHub." if !defined $self->{github_api_token};
 
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
@@ -643,7 +651,7 @@ sub close_issue_process($$$$$)
   if ($res->code == 403) {
     print "Cannot close issue $text. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot close issue. Insufficient or expired authorization.\n";
+    print "Cannot close issue. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
     print "Cannot close issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -670,6 +678,9 @@ sub close_issue($$$)
 {
   my ($self, $channel, $text) = @_;
   my $repository;
+
+  return "Sorry, I cannot close issues, because I am running without " .
+      "an access token for GitHub." if !defined $self->{github_api_token};
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
@@ -738,6 +749,9 @@ sub reopen_issue($$$)
 {
   my ($self, $channel, $text) = @_;
   my $repository;
+
+  return "Sorry, I cannot open issues, because I am running without " .
+      "an access token for GitHub." if !defined $self->{github_api_token};
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
@@ -858,7 +872,7 @@ sub get_issue_summary_process($$$$)
 sub maybe_expand_references($$$$)
 {
   my ($self, $text, $channel, $addressed) = @_;
-  my ($linenr, $delay, $do_issues, $do_names, $response, $repository);
+  my ($linenr, $delay, $do_issues, $do_names, $response, $repository, $nrefs);
 
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
@@ -867,6 +881,7 @@ sub maybe_expand_references($$$$)
   $response = '';
 
   # Look for #number, prefix#number and @name.
+  $nrefs = 0;
   while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
@@ -893,8 +908,16 @@ sub maybe_expand_references($$$$)
     } else {
       $self->log("Channel $channel, skipping $ref");
     }
+    $nrefs++;
   }
-  return $response;
+
+  # If we were explicitly addressed, but there were no references,
+  # that's probaby a mistake. Maybe a misspelled command. So issue a
+  # warning. Otherwise, return the results or errors from expanding
+  # the references.
+  return $addressed && $nrefs == 0
+      ? "sorry, I don't understand what you want me to do. Maybe try \"help\"?"
+      : $response;
 }
 
 
@@ -979,11 +1002,12 @@ sub set_suspend_names($$$)
 sub set_suspend_all($$$)
 {
   my ($self, $channel, $on) = @_;
-  my $msg;
+  my ($msg1, $msg2);
 
-  $msg = $self->set_suspend_issues($channel, $on);
-  $msg = $msg eq 'OK.' ? '' : "$msg\n";
-  return $msg . $self->set_suspend_names($channel, $on);
+  $msg1 = $self->set_suspend_issues($channel, $on);
+  $msg2 = $self->set_suspend_names($channel, $on);
+  return 'OK.' if $msg1 eq 'OK.' || $msg2 eq 'OK.';
+  return 'issues and names were already off.';
 }
 
 
@@ -1048,7 +1072,7 @@ sub set_github_alias($$$)
     delete $self->{github_names}->{fc $who};
   } else {
     return "I already had that GitHub account for $who"
-	if fc $self->{github_names}->{fc $who} eq fc $github_login;
+	if fc($self->{github_names}->{fc $who} // '') eq fc $github_login;
     $self->{github_names}->{fc $who} = $github_login;
   }
   $self->write_mapfile();
@@ -1062,11 +1086,6 @@ sub find_issues_process($$$$$$$$$$)
   my ($body, $self, $channel, $who, $state, $type, $labels, $creator,
     $assignee, $repo) = @_;
   my ($owner, $res, $ref, $q, $s);
-
-  if (!defined $self->{ua}) {
-    print "Sorry, I don't have a GitHub account\n";
-    return;
-  }
 
   $repo = $self->find_matching_repository($channel, $repo // '') or
       print "Sorry, I don't know what repository to use." and
@@ -1117,6 +1136,9 @@ sub find_issues_process($$$$$$$$$$)
 sub find_issues($$$$$$$$)
 {
   my ($self,$channel,$who,$state,$type,$labels,$creator,$assignee,$repo) = @_;
+
+  return "Sorry, I cannot access GitHub, because I am running without " .
+      "an access token." if ! defined $self->{github_api_token};
 
   $self->forkit(run => \&find_issues_process, channel => $channel,
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
@@ -1195,7 +1217,7 @@ sub said($$)
 
   return $self->set_suspend_names($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?(:names|persons|teams)(?: +to +| *= *| +)(off|no|false)(?: *\.)?$/i;
+      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(off|no|false)(?: *\.)?$/i;
 
   return $self->create_issue($channel, $1)
       if ($addressed || $do_issues) && $text =~ /^issue *[:：] *(.*)$/i &&
