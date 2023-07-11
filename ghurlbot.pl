@@ -1349,14 +1349,15 @@ sub help($$)
   return
       "the command \"action: john to ...\" or \"action john: ...\"\n" .
       "creates an action item (in fact, an issue with an assignee and\n" .
-      "a due date) in the default repository on GitHub. If you end the\n" .
+      "a due date) in the default repository on GitHub. You can\n" .
+      "Separate multiple assignees with commas. If you end the\n" .
       "text with \"due\" and a date, the due date will be that date.\n" .
       "Otherwise the due date will be one week after today.\n" .
       "The date can be specified in many ways, such as \"Apr 2\" and\n" .
       "\"next Thursday\". See \"$me, help use\" for how to set the\n" .
       "default repository. See \"$me, help is\" for defining aliases\n" .
       "for usernames.\n" .
-      "Example: \"action john: solve #1 due in 2 weeks."
+      "Example: \"action john, kylie: solve #1 due in 2 weeks."
       if $text =~ /\baction\b/i;
 
   return
