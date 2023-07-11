@@ -81,6 +81,10 @@
 	<td><a href="#reopen">Reopen an issue or action</a></td>
       </tr>
       <tr>
+	<td class=command><code>Note #17 This needs work</code></td>
+	<td><a href="#comment">Add a comment to an issue</a></td>
+      </tr>
+      <tr>
 	<td class=command><code>gb, list open issues with label foo</code>
 	<td><a href="#search">List issues/actions with various criteria</a></td>
       </tr>
@@ -360,6 +364,18 @@
     with <code>reopen</code>, followed by an issue number, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; reopen #15</pre>
+
+  <h2 id=comment>Adding a comment to an issue</h2>
+
+  <p>You can add a comment to an existing issue, with
+    commands <code>note</code> and <code>comment</code>, like
+    this:</p>
+
+  <pre class=command>&lt;joe&gt; Note #17: Also related to http://example.org
+&lt;joe&gt; Comment aria#17: Great comment!</pre>
+
+  <p>The colon (:) after the issue number may be omitted. Gb will
+    respond with a pointer to the newly created comment on GitHub.</p>
 
   <h2 id=search>List issues or actions</h2>
 
