@@ -484,7 +484,7 @@ sub create_action_process($$$$$$)
   $today->parse("today");
 
   $date = new Date::Manip::Date;
-  if ($text =~ /^(.*?)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
+  if ($text =~ /^(.*)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
     $text = $1;
   } else {
     $date->parse("next week");	# Default to 1 week
@@ -498,12 +498,12 @@ sub create_action_process($$$$$$)
     print "Assumed the due date is in ", $date->printf("%Y"), "\n";
   }
 
-  $due = $date->printf("%e %b %Y");
+  $due = $date->printf("Due: %Y-%m-%d (%A %e %B)");
 
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     Content => encode_json({title => $text, assignees => \@names,
-			    body => "due $due", labels => ['action']}));
+			    body => "$due", labels => ['action']}));
 
   print STDERR "Channel $channel, new action \"$text\" in $repository -> ",
       $res->code, "\n";
@@ -706,7 +706,7 @@ sub reopen_issue_process($$$$)
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
   $repository =~ s/^https:\/\/github\.com\///i  or
-      print "Cannot open issuess on $repository as it is not on github.com.\n"
+      print "Cannot open issues on $repository as it is not on github.com.\n"
       and return;
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
@@ -732,7 +732,14 @@ sub reopen_issue_process($$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $content->{body} // '';
+      $comment = "";
+      if ($content->{body} && $content->{body} =~
+	  /^due ([1-9 ]?[1-9] [a-z]{3} [0-9]{4})\b
+	  |^\s*Due:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\b
+	  |\bDue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
+	  /xsi) {
+	$comment = " due " . ($1 // $2 // $3);
+      }
       print "Reopened -> action #$content->{number} $content->{html_url} ",
 	  "$content->{title} (on ",
 	  join(', ', map($_->{login}, @{$content->{assignees}})),
@@ -764,6 +771,72 @@ sub reopen_issue($$$)
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
      arguments => [$self, $channel, $repository, $text]});
+
+  return undef;			# The forked process will print a result
+}
+
+
+# comment_on_issue_process -- process that adds a comment to an issue on GitHub
+sub comment_on_issue_process($$$$$$$)
+{
+  my ($body, $self, $channel, $repository, $issue, $comment, $who) = @_;
+  my ($issuenumber, $res, $login, $content);
+
+  ($issuenumber) = $issue =~ /#(.*)/; # Just the number
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      print "Cannot add a comment to $repository as it is not on github.com.\n"
+      and return;
+  $login = $self->name_to_login($who);
+  $login = '@'.$login if $login ne $who;
+  $res = $self->{ua}->post(
+    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
+    Content => encode_json(
+      {body => "Comment by $login via IRC channel $channel on $self->{server}:".
+	   "\n\n$comment"}));
+
+  print STDERR "Channel $channel, add comment to $repository#$issuenumber -> ",
+      $res->code, "\n";
+
+  if ($res->code == 403) {
+    print "Cannot add a comment to issue $issue. Forbidden.\n";
+  } elsif ($res->code == 401) {
+    print "Cannot add a comment. Insufficient or expired authorization.\n";
+  } elsif ($res->code == 404) {
+    print "Cannot add a comment to issue $issue. Issue not found.\n";
+  } elsif ($res->code == 410) {
+    print "Cannot add a comment to issue $issue. Issue is gone.\n";
+  } elsif ($res->code == 422) {
+    print "Cannot add a comment to issue $issue. Validation failed.\n";
+  } elsif ($res->code == 503) {
+    print "Cannot add a comment to issue $issue. Service unavailable.\n";
+  } elsif ($res->code != 201) {
+    print "Cannot add a comment to issue $issue. Error ".$res->code."\n";
+  } else {
+    $content = decode_json($res->decoded_content);
+    print "Added -> comment $content->{id} $content->{html_url}\n"
+  }
+}
+
+
+# comment_on_issue -- add a comment to an existing issue or action
+sub comment_on_issue($$$$$)
+{
+  my ($self, $channel, $issue, $comment, $who) = @_;
+  my $repository;
+
+  return "Sorry, I cannot add comments to issues, because I am running with" .
+      "out an access token for GitHub." if !defined $self->{github_api_token};
+
+  $repository = $self->find_repository_for_issue($channel, $issue) or
+      return "Sorry, I don't know what repository to use for $issue";
+
+  $self->check_and_update_rate($repository) or
+      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
+      " times in ".RATEPERIOD." minutes. Please, try again later.";
+
+  $self->forkit(
+    {run => \&comment_on_issue_process, channel => $channel,
+     arguments => [$self, $channel, $repository, $issue, $comment, $who]});
 
   return undef;			# The forked process will print a result
 }
@@ -855,7 +928,14 @@ sub get_issue_summary_process($$$$)
 
   $ref = decode_json($res->decoded_content);
   if (grep($_->{name} eq 'action', @{$ref->{labels}})) {
-    $comment = /(^due  ?[1-9].*)/ ? " $1" : "" for $ref->{body} // '';
+    $comment = "";
+    if ($ref->{body} && $ref->{body} =~
+	/^due ([1-9 ]?[1-9] [a-z]{3} [0-9]{4})\b
+	|^\s*Due:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\b
+	|\bD	ue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
+	/xsi) {
+      $comment = " due " . ($1 // $2 // $3);
+    }
     print "$repository/issues/$issue -> Action $issue ",
 	($ref->{state} eq 'closed' ? '[closed] ' : ''),	"$ref->{title} (on ",
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
@@ -1234,6 +1314,11 @@ sub said($$)
       if ($addressed || $do_issues) &&
       ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
          $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i) &&
+      !$self->is_ignored_nick($channel, $who);
+
+  return $self->comment_on_issue($channel, $1, $2, $who)
+      if ($addressed || $do_issues) &&
+      $text =~ /^(note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2)
