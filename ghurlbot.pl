@@ -1196,7 +1196,7 @@ sub find_issues_process($$$$$$$$$$)
   print STDERR "Channel $channel, list $q in $owner/$repo -> ",$res->code,"\n";
 
   if ($res->code == 404) {
-    print "Not found\n";
+    print "Repository \"$owner/$repo\" not found\n";
     return;
   } elsif ($res->code == 422) {
     print "Validation failed\n";
@@ -1344,7 +1344,7 @@ sub said($$)
   return $self->find_issues($channel, $who, $2 // "open", $3 // "issues",
     $4, $5, $6 // $1, $7)
       if $addressed &&
-      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +([^ ].*?))*(?: *\.)?$/i;
+      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?))*(?: *\.)?$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
