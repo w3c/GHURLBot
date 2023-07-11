@@ -68,6 +68,7 @@ use Net::Netrc;
 use Encode qw(str2bytes bytes2str);
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
+use constant HOME => 'https://w3c.github.io/GHURLBot';
 use constant VERSION => '0.3';
 use constant DEFAULT_DELAY => 15;
 
@@ -1590,8 +1591,8 @@ my $bot = GHURLBot->new(
   ssl => $ssl,
   username => $user,
   password => $password,
-  nick => $opts{'n'} // 'ghurlbot',
-  name => $opts{'N'} // 'GHURLBot '.VERSION,
+  nick => $opts{'n'} // 'gb',
+  name => $opts{'N'} // 'GHURLBot '.VERSION.' see '.HOME,
   channels => (defined $channel ? [$channel] : []),
   rejoinfile => $opts{'r'},
   mapfile => $opts{'m'} // 'ghurlbot.map',
@@ -1674,12 +1675,12 @@ as "%3a", "/" as "%2f", etc.
 
 =item B<-n> I<nick>
 
-The nickname the bot runs under. Default is "ghurlbot".
+The nickname the bot runs under. Default is "gb".
 
 =item B<-N> I<name>
 
 The real name of the bot (for the purposes of the \whois command of
-IRC). Default is "GHURLBot 0.1".
+IRC). Default is "GHURLBot 0.1 see https://w3c.github.io/GHURLBot".
 
 =item B<-m> I<map-file>
 
