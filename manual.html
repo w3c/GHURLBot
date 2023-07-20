@@ -307,17 +307,18 @@
 
   <h2 id=create-action>Creating an action</h2>
 
-  <p>You can create an action item for somebody with either of the
-    following two syntaxes:</p>
+  <p>You can create an action item for somebody with the
+    following three syntaxes:</p>
 
   <pre class=command>&lt;joe&gt; action alex: review chapter 1
-&lt;joe&gt; action: alex to review chapter 1</pre>
+&lt;joe&gt; action: alex to review chapter 1
+&lt;joe&gt; action: alex: review chapter 1</pre>
 
   <p>You can assign an action to several people at once by separating
-    their names with commas. E.g.:</p>
+    their names with commas and/or the word ‘and’. E.g.:</p>
 
   <pre class=command>&lt;jope&gt; action alex, kylie, coen: review chapter 1
-&lt;joe&gt; action: alex, kylie, coen to review chapter 1</pre>
+&lt;joe&gt; action: alex, kylie and coen to review chapter 1</pre>
 
   <p>The action will be created in the repository that is at the top of
     gb's list.</p>
