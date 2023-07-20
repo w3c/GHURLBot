@@ -478,7 +478,7 @@ sub create_action_process($$$$$$)
       print "Cannot create actions on $repository as it is not on github.com.\n"
       and return;
 
-  @names = map($self->name_to_login($_), split(/ *, */, $names));
+  @names = map($self->name_to_login($_), split(/ *,? +and +| *, */, $names));
 
   $today = new Date::Manip::Date;
   $today->parse("today");
@@ -1323,8 +1323,8 @@ sub said($$)
 
   return $self->create_action($channel, $1, $2)
       if ($addressed || $do_issues) &&
-      ($text =~ /^action +([^:：]+?) *[:：] *(.*?)$/i ||
-	$text =~ /^action *[:：] *(.*?) +to +(.*?)$/i) &&
+      ($text =~ /^action +([^:：]+?) *[:：] *(.*)$/i ||
+	$text =~ /^action *[:：] *(.*?)(?: +to | *[:：])(.*)$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->account_info($channel)
