@@ -478,7 +478,8 @@ sub create_action_process($$$$$$)
       print "Cannot create actions on $repository as it is not on github.com.\n"
       and return;
 
-  @names = map($self->name_to_login($_), split(/ *,? +and +| *, */, $names));
+  @names = map($self->name_to_login($_),
+	       grep(/./, split(/ *,? +and +| *, */, $names)));
 
   $today = new Date::Manip::Date;
   $today->parse("today");
