@@ -814,7 +814,7 @@ sub comment_on_issue_process($$$$$$$)
     print "Cannot add a comment to issue $issue. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Added -> comment $content->{id} $content->{html_url}\n"
+    print "Added -> comment $content->{html_url}\n"
   }
 }
 
@@ -1319,7 +1319,7 @@ sub said($$)
 
   return $self->comment_on_issue($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
-      $text =~ /^(note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i &&
+      $text =~ /^(?:note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2)
@@ -1374,8 +1374,8 @@ sub help($$)
       "forget, drop, remove, don't use, do not use, issue, action, set,\n" .
       "delay, status, on, off, issues, names, persons, teams, invite,\n" .
       "list, search, find, get, look up, is, =, ignore, don't ignore,\n" .
-      "do not ignore, who are you, account, user, login, close, reopen,\n" .
-      "bye.  Example: \"$me, help #\"."
+      "do not ignore, who are you, account, user, login, close,\n" .
+      "reopen, comment, note, bye.  Example: \"$me, help #\"."
       if $text =~ /\bcommands\b/i;
 
   return
@@ -1394,14 +1394,14 @@ sub help($$)
       if $text =~ /@/;
 
   return
-      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\"\n" .
-      "adds repository xxx/yyy to my list of known repositories\n" .
-      "and makes it the default. If you create issues and action\n" .
-      "items, they will be created in this repository. If you omit xxx,\n" .
-      "it will be copied from the next repository in my list, or \"w3c\"\n" .
-      "if there is none. You can give more than one repository,\n" .
-      "separated by commas or spaces. Aliases: use, discussing,\n" .
-      "discuss, using, take up taking up, this will be, this is.\n" .
+      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\" adds\n" .
+      "repository xxx/yyy to my list of known repositories and makes it\n" .
+      "the default. If you create issues and action items, they will be\n" .
+      "created in this repository. If you omit xxx, it will be copied\n" .
+      "from the next repository in my list, or \"w3c\" if there is\n" .
+      "none. You can give more than one repository, separated by commas\n" .
+      "or spaces. Aliases: use, discussing, discuss, using, take up\n" .
+      "taking up, this will be, this is.\n" .
       "See also \"$me, help repo\". Example: \"$me, $1 w3c/rdf-star\"."
       if $text =~ /\b(use|discussing|discuss|using|take +up|taking +up|this +will +be|this +is)\b/i;
 
@@ -1569,7 +1569,18 @@ sub help($$)
       "issues or actions that match those conditions.\n" .
       "Example: \"$1 closed actions for joe from w3c/rdf-star\".\n" .
       "Aliases: find, look up, get, search, search for, list."
-      if $text =~ /\b(find|look +up|get|search|search +for|list)/i;
+      if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
+
+  return
+      "the command \"comment #nn text\" or\n" .
+      "\"comment yyy#nn text\" or \"comment xxx/yyy#nn text\" tells\n" .
+      "me to add some text to GitHub issue nn in repository xxx/yyy.\n" .
+      "If you omit xxx or xxx/yyy, I will find the repository in my\n" .
+      "list of repositories. See also \"$me, help use\" for creating a\n" .
+      "list of repositories.\n" .
+      "Example: \"note #71: This is related to #70.\"\n" .
+      "Aliases: comment, note.\n"
+      if $text =~ /\b(comment|note)\b/i;
 
   return
       "I am a bot to look up and create GitHub issues and\n" .
