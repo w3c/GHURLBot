@@ -1,12 +1,13 @@
 GHURLBot is an IRC bot that provides full URLs when GitHub issues
-(‘#123’) or users (‘@yyyy’) are mentioned in IRC. E.g.:
+(‘#123’) or users (‘@yyyy’) are mentioned in IRC. It is typically
+known as ‘gb’ on IRC. E.g.:
 
     <joe> Let's discuss issue #13.
-    <ghurlbot> https://github.com/xxx/yyy/issues/13 -> #13
+    <gb> https://github.com/xxx/yyy/issues/13 -> #13
 
 When started with a GitHub personal access token, it can also
 **look up issues** in a GitHub repository, **create new issues and
-action items,** or **close** them.
+action items,** **add comments to them,** or **close** them.
 
 Instructions for running the bot and descriptions of the command-line
 options are included in the `ghurlbot.pl` file. Download the file and
