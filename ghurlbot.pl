@@ -1581,12 +1581,12 @@ sub help($$)
       if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
 
   return
-      "the command \"comment #nn text\" or\n" .
-      "\"comment yyy#nn text\" or \"comment xxx/yyy#nn text\" tells\n" .
+      "the command \"comment #nn: text\" or\n" .
+      "\"comment yyy#nn: text\" or \"comment xxx/yyy#nn: text\" tells\n" .
       "me to add some text to GitHub issue nn in repository xxx/yyy.\n" .
-      "If you omit xxx or xxx/yyy, I will find the repository in my\n" .
-      "list of repositories. See also \"$me, help use\" for creating a\n" .
-      "list of repositories.\n" .
+      "The colon(:) is optional. If you omit xxx or xxx/yyy, I will\n" .
+      "find the repository in my list of repositories.\n" .
+      "See also \"$me, help use\" for creating a list of repositories.\n" .
       "Example: \"note #71: This is related to #70.\"\n" .
       "Aliases: comment, note.\n"
       if $text =~ /\b(comment|note)\b/i;
