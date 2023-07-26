@@ -31,6 +31,8 @@
 # TODO: When listing issues and the result has 100 items, check if
 # there are more and if so, say so on IRC.
 #
+# TODO: Add and remove labels from issues?
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -161,7 +163,7 @@ sub read_mapfile($)
   my $self = shift;
   my $channel;
 
-  if (-f $self->{mapfile}) {		# File exists
+  if (-r $self->{mapfile} && ! -d $self->{mapfile}) { # Is a readable file
     $self->log("Reading $self->{mapfile}");
     open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
     while (<$fh>) {
@@ -208,9 +210,7 @@ sub read_mapfile($)
       }
     }
   } else {				# File does not exist yet
-    $self->log("Creating $self->{mapfile}");
-    open my $fh, ">", $self->{mapfile} or
-	$self->log("Cannot create $self->{mapfile}: $!");
+    $self->log("Ignoring unreadable file $self->{mapfile}");
   }
   return undef;				# No errors
 }
@@ -933,7 +933,7 @@ sub get_issue_summary_process($$$$)
     if ($ref->{body} && $ref->{body} =~
 	/^due ([1-9 ]?[1-9] [a-z]{3} [0-9]{4})\b
 	|^\s*Due:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\b
-	|\bD	ue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
+	|\bDue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
 	/xsi) {
       $comment = " due " . ($1 // $2 // $3);
     }
@@ -944,7 +944,7 @@ sub get_issue_summary_process($$$$)
     print "$repository/issues/$issue -> ",
 	($ref->{pull_request} ? 'Pull Request' : 'Issue'), " $issue ",
 	($ref->{state} eq 'closed' ? '[closed] ' : ''),
-	"$ref->{title} ($ref->{user}->{login})",
+	"$ref->{title} (by $ref->{user}->{login})",
 	join(',', map(" $_->{name}", @{$ref->{labels}})), "\n";
   }
 }
@@ -1623,7 +1623,7 @@ sub esc($)
   my ($octets);
 
   $octets = str2bytes("UTF-8", $s);
-  $octets =~ s/([^A-Za-z0-9._~!$'()*+,=:@\/?-])/"%".sprintf("%02x",ord($1))/eg;
+  $octets =~ s/([^A-Za-z0-9._~!$'()*,=:@\/-])/"%".sprintf("%02x",ord($1))/eg;
   return bytes2str("UTF-8", $octets);
 }
 
