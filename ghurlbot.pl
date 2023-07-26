@@ -195,8 +195,8 @@ sub read_mapfile($)
 	$channel = $1;
       } elsif (! defined $channel) {
 	return "$self->{mapfile}:$.: missing \"channel\" line";
-      } elsif ($_ =~ /^\s*repo\s+([^\s]+)\s*$/) {
-	push @{$self->{repos}->{$channel}}, $1;
+      } elsif ($_ =~ /^\s*repo\b\s*([^\s]*)\s*$/) {
+	push @{$self->{repos}->{$channel}}, $1 if $1;
       } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
 	$self->{delays}->{$channel} = 0 + $1;
       } elsif ($_ =~ /\s*issues\s+off\s*$/) {
@@ -221,17 +221,26 @@ sub write_mapfile($)
 {
   my $self = shift;
 
+  # Sorting (of channel names, repo name and aliases) is not
+  # necessary, but helps make the mapfile more readable.
+  #
   if (open my $fh, '>', $self->{mapfile}) {
-    foreach my $channel (keys %{$self->{linenumber}}) {
+    foreach my $channel
+	(sort(uniq(keys(%{$self->{repos}}), keys(%{$self->{suspend_issues}}),
+		   keys(%{$self->{suspend_names}}), keys(%{$self->{delays}}),
+		   keys(%{$self->{ignored_nicks}})))) {
       printf $fh "channel %s\n", $channel;
-      printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel}};
-      printf $fh "delay %d\n", $self->{delays}->{$channel} // DEFAULT_DELAY;
+      printf $fh "repo %s\n", $_ for sort(@{$self->{repos}->{$channel}});
+      printf $fh "delay %d\n", $self->{delays}->{$channel} if
+	  defined $self->{delays}->{$channel} &&
+	  $self->{delays}->{$channel} != DEFAULT_DELAY;
       printf $fh "issues off\n" if $self->{suspend_issues}->{$channel};
       printf $fh "names off\n" if $self->{suspend_names}->{$channel};
-      printf $fh "ignore %s\n", $_ for values %{$self->{ignored_nicks}->{$channel}};
+      printf $fh "ignore %s\n", $_
+	  for sort(values(%{$self->{ignored_nicks}->{$channel}}));
       printf $fh "\n";
     }
-    foreach my $nick (keys %{$self->{github_names}}) {
+    foreach my $nick (sort(keys %{$self->{github_names}})) {
       printf $fh "alias %s %s\n", $nick, $self->{github_names}->{$nick};
     }
   } else {
@@ -942,10 +951,10 @@ sub get_issue_summary_process($$$$)
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
   } else {
     print "$repository/issues/$issue -> ",
+	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),
 	($ref->{pull_request} ? 'Pull Request' : 'Issue'), " $issue ",
-	($ref->{state} eq 'closed' ? '[closed] ' : ''),
 	"$ref->{title} (by $ref->{user}->{login})",
-	join(',', map(" $_->{name}", @{$ref->{labels}})), "\n";
+	map(" [$_->{name}]", @{$ref->{labels}}), "\n";
   }
 }
 
@@ -1613,6 +1622,14 @@ sub log
     $self->SUPER::log(
       map /^\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ/ ? $_ : "$now $_", @messages);
   }
+}
+
+
+# uniq -- return the list of distinct items in a list
+sub uniq(@)
+{
+  my %seen;
+  return grep {!$seen{$_}++} @_;
 }
 
 
