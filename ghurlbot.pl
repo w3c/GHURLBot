@@ -9,8 +9,8 @@
 #
 # TODO: Allow "action-9" as an alternative for "#9"?
 #
-# TODO: Add a permission system to limit who can create, close or
-# reopen issues? (Maybe people on IRC can somehow prove to ghurlbot
+# TODO: Add a permission system to limit who can create, close, reopen
+# or comment on issues? (Maybe people on IRC can somehow prove to ghurlbot
 # that they have a GitHub account and maybe ghurlbot can find out if
 # that account has the right to close an issue?)
 #
@@ -230,17 +230,17 @@ sub write_mapfile($)
 		   keys(%{$self->{suspend_names}}), keys(%{$self->{delays}}),
 		   keys(%{$self->{ignored_nicks}})))) {
       printf $fh "channel %s\n", $channel;
-      printf $fh "repo %s\n", $_ for sort(@{$self->{repos}->{$channel}});
+      printf $fh "repo %s\n", $_ for sort @{$self->{repos}->{$channel} // []};
       printf $fh "delay %d\n", $self->{delays}->{$channel} if
 	  defined $self->{delays}->{$channel} &&
 	  $self->{delays}->{$channel} != DEFAULT_DELAY;
       printf $fh "issues off\n" if $self->{suspend_issues}->{$channel};
       printf $fh "names off\n" if $self->{suspend_names}->{$channel};
       printf $fh "ignore %s\n", $_
-	  for sort(values(%{$self->{ignored_nicks}->{$channel}}));
+	  for sort values %{$self->{ignored_nicks}->{$channel} // {}};
       printf $fh "\n";
     }
-    foreach my $nick (sort(keys %{$self->{github_names}})) {
+    foreach my $nick (sort keys %{$self->{github_names} // {}}) {
       printf $fh "alias %s %s\n", $nick, $self->{github_names}->{$nick};
     }
   } else {
