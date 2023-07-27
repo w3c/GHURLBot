@@ -824,7 +824,7 @@ when you call the C<connect_server> method).
 Call this method to leave a channel. The argument is the name of a
 channel. When successful, the channel will be removed from the list of
 channels passed to the C<new> method, so that the bot will not rejoin
-the channel on the next .
+the channel on the next reconnection.
 
 =head2 C<invite>
 
