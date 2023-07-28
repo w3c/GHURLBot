@@ -475,10 +475,10 @@ sub check_and_update_rate($$)
 
 
 # create_action_process -- process that creates an action item on GitHub
-sub create_action_process($$$$$$)
+sub create_action_process($$$$$$$)
 {
-  my ($body, $self, $channel, $repository, $names, $text) = @_;
-  my (@names, @labels, $res, $content, $date, $due, $today);
+  my ($body, $self, $channel, $repository, $names, $text, $who) = @_;
+  my (@names, @labels, $res, $content, $date, $due, $today, $login, $s);
 
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
@@ -510,10 +510,14 @@ sub create_action_process($$$$$$)
 
   $due = $date->printf("Due: %Y-%m-%d (%A %e %B)");
 
+  $login = $self->name_to_login($who);
+  $login = '@'.$login if $login ne $who;
+  $s = "Opened by $login via IRC channel $channel on $self->{server}\n\n$due";
+
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     Content => encode_json({title => $text, assignees => \@names,
-			    body => "$due", labels => ['action']}));
+			    body => "$s", labels => ['action']}));
 
   print STDERR "Channel $channel, new action \"$text\" in $repository -> ",
       $res->code, "\n";
@@ -555,9 +559,9 @@ sub create_action_process($$$$$$)
 
 
 # create_action -- create a new action item
-sub create_action($$$)
+sub create_action($$$$)
 {
-  my ($self, $channel, $names, $text) = @_;
+  my ($self, $channel, $names, $text, $who) = @_;
   my $repository;
 
   return "Sorry, I cannot create actions, because I am running without " .
@@ -573,25 +577,28 @@ sub create_action($$$)
 
   $self->forkit(
     {run => \&create_action_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $names, $text]});
+     arguments => [$self, $channel, $repository, $names, $text, $who]});
 
   return undef;			# The forked process will print a result
 }
 
 
 # create_issue_process -- process that creates an issue on GitHub
-sub create_issue_process($$$$)
+sub create_issue_process($$$$$)
 {
-  my ($body, $self, $channel, $repository, $text) = @_;
-  my ($res, $content);
+  my ($body, $self, $channel, $repository, $text, $who) = @_;
+  my ($res, $content, $login, $s);
 
   $repository =~ s/^https:\/\/github\.com\///i or
       print "Cannot create issues on $repository as it is not on github.com.\n"
       and return;
 
+  $login = $self->name_to_login($who);
+  $login = '@'.$login if $login ne $who;
+  $s = "Opened by $login via IRC channel $channel on $self->{server}";
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
-    Content => encode_json({title => $text}));
+    Content => encode_json({title => $text, body => $s}));
 
   print STDERR "Channel $channel, new issue \"$text\" in $repository -> ",
       $res->code, "\n";
@@ -619,9 +626,9 @@ sub create_issue_process($$$$)
 
 
 # create_issue -- create a new issue
-sub create_issue($$$)
+sub create_issue($$$$)
 {
-  my ($self, $channel, $text) = @_;
+  my ($self, $channel, $text, $who) = @_;
   my $repository;
 
   return "Sorry, I cannot create issues, because I am running without " .
@@ -636,25 +643,35 @@ sub create_issue($$$)
 
   $self->forkit(
     {run => \&create_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text]});
+     arguments => [$self, $channel, $repository, $text, $who]});
 
   return undef;			# The forked process will print a result
 }
 
 
 # close_issue_process -- process that closes an issue on GitHub
-sub close_issue_process($$$$$)
+sub close_issue_process($$$$$$)
 {
-  my ($body, $self, $channel, $repository, $text) = @_;
-  my ($res, $content, $issuenumber);
+  my ($body, $self, $channel, $repository, $text, $who) = @_;
+  my ($res, $content, $issuenumber, $login);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
   $repository =~ s/^https:\/\/github\.com\///i  or
       print "Cannot close issues on $repository as it is not on github.com.\n"
       and return;
-  $res = $self->{ua}->patch(
-    "https://api.github.com/repos/$repository/issues/$issuenumber",
-    Content => encode_json({state => 'closed'}));
+
+  # Add a comment saying who closed the issue and then close it.
+  $login = $self->name_to_login($who);
+  $login = '@'.$login if $login ne $who;
+  $res = $self->{ua}->post(
+    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
+    Content => encode_json(
+      {body=>"Closed by $login via IRC channel $channel on $self->{server}"}));
+  if ($res->code == 201) {
+    $res = $self->{ua}->patch(
+      "https://api.github.com/repos/$repository/issues/$issuenumber",
+      Content => encode_json({state => 'closed'}));
+  }
 
   print STDERR "Channel $channel, close $repository#$issuenumber -> ",
       $res->code, "\n";
@@ -685,9 +702,9 @@ sub close_issue_process($$$$$)
 
 
 # close_issue -- close an issue
-sub close_issue($$$)
+sub close_issue($$$$)
 {
-  my ($self, $channel, $text) = @_;
+  my ($self, $channel, $text, $who) = @_;
   my $repository;
 
   return "Sorry, I cannot close issues, because I am running without " .
@@ -702,25 +719,35 @@ sub close_issue($$$)
 
   $self->forkit(
     {run => \&close_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text]});
+     arguments => [$self, $channel, $repository, $text, $who]});
 
   return undef;			# The forked process will print a result
 }
 
 
 # reopen_issue_process -- process that reopens an issue on GitHub
-sub reopen_issue_process($$$$)
+sub reopen_issue_process($$$$$)
 {
-  my ($body, $self, $channel, $repository, $text) = @_;
-  my ($res, $content, $issuenumber, $comment);
+  my ($body, $self, $channel, $repository, $text, $who) = @_;
+  my ($res, $content, $issuenumber, $comment, $login);
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
   $repository =~ s/^https:\/\/github\.com\///i  or
       print "Cannot open issues on $repository as it is not on github.com.\n"
       and return;
-  $res = $self->{ua}->patch(
-    "https://api.github.com/repos/$repository/issues/$issuenumber",
-    Content => encode_json({state => 'open'}));
+
+  # Reopena and add a comment saying who reopened the issue.
+  $login = $self->name_to_login($who);
+  $login = '@'.$login if $login ne $who;
+  $res = $self->{ua}->post(
+    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
+    Content => encode_json(
+      {body=>"Reopened by $login via IRC channel $channel on $self->{server}"}));
+  if ($res->code == 201) {
+    $res = $self->{ua}->patch(
+      "https://api.github.com/repos/$repository/issues/$issuenumber",
+      Content => encode_json({state => 'open'}));
+  }
 
   print STDERR "Channel $channel, reopen $repository#$issuenumber -> ",
       $res->code, "\n";
@@ -763,9 +790,9 @@ sub reopen_issue_process($$$$)
 
 
 # reopen_issue -- reopen an issue
-sub reopen_issue($$$)
+sub reopen_issue($$$$)
 {
-  my ($self, $channel, $text) = @_;
+  my ($self, $channel, $text, $who) = @_;
   my $repository;
 
   return "Sorry, I cannot open issues, because I am running without " .
@@ -780,7 +807,7 @@ sub reopen_issue($$$)
 
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text]});
+     arguments => [$self, $channel, $repository, $text, $who]});
 
   return undef;			# The forked process will print a result
 }
@@ -801,7 +828,7 @@ sub comment_on_issue_process($$$$$$$)
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
     Content => encode_json(
-      {body => "Comment by $login via IRC channel $channel on $self->{server}:".
+      {body => "Comment by $login via IRC channel $channel on $self->{server}".
 	   "\n\n$comment"}));
 
   print STDERR "Channel $channel, add comment to $repository#$issuenumber -> ",
@@ -1310,17 +1337,17 @@ sub said($$)
       if $addressed &&
       $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(off|no|false)(?: *\.)?$/i;
 
-  return $self->create_issue($channel, $1)
+  return $self->create_issue($channel, $1, $who)
       if ($addressed || $do_issues) && $text =~ /^issue *[:：] *(.*)$/i &&
       !$self->is_ignored_nick($channel, $who);
 
-  return $self->close_issue($channel, $1)
+  return $self->close_issue($channel, $1, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
 	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
-  return $self->reopen_issue($channel, $1)
+  return $self->reopen_issue($channel, $1, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
          $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i) &&
@@ -1331,7 +1358,7 @@ sub said($$)
       $text =~ /^(?:note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i &&
       !$self->is_ignored_nick($channel, $who);
 
-  return $self->create_action($channel, $1, $2)
+  return $self->create_action($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^action +([^:：]+?) *[:：] *(.*)$/i ||
 	$text =~ /^action *[:：] *(.*?)(?: +to | *[:：])(.*)$/i) &&
@@ -1606,6 +1633,17 @@ sub connected($)
   my ($self) = @_;
 
   $self->join_channel($_) foreach keys %{$self->{joined_channels}};
+}
+
+
+# chanpart -- called when somebody leaves a channel
+sub chanpart($)
+{
+  my $info = shift;
+  my $who = $info->{who};
+  my $channel = $info->{channel};
+
+  # If we had information about this user, remove
 }
 
 
