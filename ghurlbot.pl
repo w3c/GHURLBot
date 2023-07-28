@@ -1636,17 +1636,6 @@ sub connected($)
 }
 
 
-# chanpart -- called when somebody leaves a channel
-sub chanpart($)
-{
-  my $info = shift;
-  my $who = $info->{who};
-  my $channel = $info->{channel};
-
-  # If we had information about this user, remove
-}
-
-
 # log -- print a message to STDERR, but only if -v (verbose) was specified
 sub log
 {
