@@ -1256,7 +1256,12 @@ sub said($$)
   my $do_issues = !defined $self->{suspend_issues}->{$channel};
 
   return $self->authenticate_nick($who)
-      if $channel eq 'msg' && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
+      if ($channel eq 'msg' || $addressed)
+      && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
+
+  return $self->deauthenticate_nick($who)
+      if ($channel eq 'msg' || $addressed)
+      && $text =~ /^forget +me *\.? *$/i;
 
   return if $channel eq 'msg';		# Do not react to other private messages
 
@@ -1352,9 +1357,6 @@ sub said($$)
     $4, $5, $6 // $1, $7)
       if $addressed &&
       $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?))* *\.? *$/i;
-
-  return $self->authenticate_nick($who)
-      if $addressed && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed, $who);
 }
@@ -1802,6 +1804,16 @@ sub authenticate_nick($$)
      handler => 'handle_ask_user_process_output', arguments => [$self, $who]});
 
   return "I'll send you instructions in a private message.";
+}
+
+
+# deauthenticate_nick -- forget the GitHub accesskey for a nick
+sub deauthenticate_nick($$)
+{
+  my ($self, $who) = @_;
+
+  $self->accesskey($who, '');
+  return "OK.";
 }
 
 
