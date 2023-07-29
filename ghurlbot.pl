@@ -1255,13 +1255,11 @@ sub said($$)
   my $addressed = $info->{address};	# Defined if we're personally addressed
   my $do_issues = !defined $self->{suspend_issues}->{$channel};
 
-  return $self->authenticate_nick($who)
-      if ($channel eq 'msg' || $addressed)
-      && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
+  return $self->authenticate_nick($channel, $who)
+      if $addressed && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
 
   return $self->deauthenticate_nick($who)
-      if ($channel eq 'msg' || $addressed)
-      && $text =~ /^forget +me *\.? *$/i;
+      if $addressed && $text =~ /^forget +me *\.? *$/i;
 
   return if $channel eq 'msg';		# Do not react to other private messages
 
@@ -1792,9 +1790,9 @@ sub ask_user_to_login($$)
 
 
 # authenticate_nick -- get a GitHub accesskey for a nick
-sub authenticate_nick($$)
+sub authenticate_nick($$$)
 {
-  my ($self, $who) = @_;
+  my ($self, $channel, $who) = @_;
 
   return "I already have GitHub access codes for you."
       if $self->accesskey($who);
@@ -1803,6 +1801,7 @@ sub authenticate_nick($$)
     {run => \&ask_user_to_login_process, who => $who, channel => 'msg',
      handler => 'handle_ask_user_process_output', arguments => [$self, $who]});
 
+  return if $channel eq "msg";
   return "I'll send you instructions in a private message.";
 }
 
