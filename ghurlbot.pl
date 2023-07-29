@@ -1564,7 +1564,6 @@ sub help($$)
       "I'll give you a one-time code (in a private message) to enter\n" .
       "on https://github.com/login/device\n" .
       "Aliases: auth me, authenticate me. Example: $me, auth me"
-      "Aliases: auth me, authenticate me. Example: \"$me, auth me\"."
       if $text =~ /\b(auth +me|authenticate +me)\b/i;
 
   return
