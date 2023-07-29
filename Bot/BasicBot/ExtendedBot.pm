@@ -285,7 +285,7 @@ sub say
 }
 
 
-# emote -- send test to a channel as with "/me"
+# emote -- send text to a channel as with "/me"
 sub emote
 {
   # Override the inherited method, because we want to handle multiline text.
@@ -732,7 +732,7 @@ effect as calling L<C<< Bot::BasicBot->say >>|say>.
 
 The subroutine can also print lines to STDERR. This has the same
 effect ad calling L<C<< Bot::BasicBot->log >>|log>. (The default log()
-method simply writes to STDERR, btu you can override it.)
+method simply writes to STDERR, but you can override it.)
 
 C<forkit> takes the following arguments:
 
