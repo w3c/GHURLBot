@@ -1384,7 +1384,7 @@ sub help($$)
       "delay, status, on, off, issues, names, persons, teams, invite,\n" .
       "list, search, find, get, look up, is, =, ignore, don't ignore,\n" .
       "do not ignore, close, reopen, comment, note, auth me,\n" .
-      "authenticate me, bye.  Example: \"$me, help #\"."
+      "authenticate me, bye.  Example: $me, help #"
       if $text =~ /\bcommands\b/i;
 
   return
@@ -1393,13 +1393,13 @@ sub help($$)
       "the name of a repository owner), I will print the URL to that\n" .
       "issue and try to retrieve a summary.\n" .
       "See also \"$me, help use\" for setting the default repositories.\n" .
-      "Example: \"#1\"."
+      "Example: #1"
       if $text =~ /#/;
 
   return
       "when I see \"\@abc\" (where abc is any name), I will print\n" .
       "the URL of the user or team of that name on GitHub.\n" .
-      "Example: \"\@w3c\".\n"
+      "Example: \@w3c"
       if $text =~ /@/;
 
   return
@@ -1411,7 +1411,7 @@ sub help($$)
       "none. You can give more than one repository, separated by commas\n" .
       "or spaces. Aliases: use, discussing, discuss, using, take up\n" .
       "taking up, this will be, this is.\n" .
-      "See also \"$me, help repo\". Example: \"$me, $1 w3c/rdf-star\"."
+      "See also \"$me, help repo\". Example: $me, $1 w3c/rdf-star"
       if $text =~ /\b(use|discussing|discuss|using|take +up|taking +up|this +will +be|this +is)\b/i;
 
   return
@@ -1423,7 +1423,7 @@ sub help($$)
       "You can give more than one repository. Use commas or\n" .
       "spaces to separate them. Aliases: repo, repos, repository,\n" .
       "repositories. See also \"$me, help use\".\n" .
-      "Example: \"$1: w3c/rdf-star\"."
+      "Example: $1: w3c/rdf-star"
       if $text =~ /\b(repo|repos|repository|repositories)\b/i;
 
   return
@@ -1438,7 +1438,7 @@ sub help($$)
   return
       "the command \"issue: ...\" creates a new issue in the default\n" .
       "repository on GitHub. See \"$me, help use\" for how to set\n" .
-      "the default repository. Example: \"issue: Section 1.1 is wrong\".\n"
+      "the default repository. Example: issue: Section 1.1 is wrong"
       if $text =~ /\bissue\b/i;
 
   return
@@ -1452,7 +1452,7 @@ sub help($$)
       "\"next Thursday\". See \"$me, help use\" for how to set the\n" .
       "default repository. See \"$me, help is\" for defining aliases\n" .
       "for usernames.\n" .
-      "Example: \"action john, kylie: solve #1 due in 2 weeks."
+      "Example: action john, kylie: solve #1 due in 2 weeks"
       if $text =~ /\baction\b/i;
 
   return
@@ -1467,14 +1467,14 @@ sub help($$)
       "\"$me, delay nn\", or \"$me, delay = nn\", or\n" .
       "\"$me, set delay nn\" or \"$me, set delay to nn\"\n" .
       "changes the number of lines from 15 to nn.\n" .
-      "Example: \"$me, delay 0\""
+      "Example: $me, delay 0"
       if $text =~ /\bdelay\b/i;
 
   return
       "if you say \"$me, status\" or \"$me, status?\" I will print\n" .
       "my current list of repositories, the current delay, whether I'm\n" .
       "looking up issues, and which IRC users I'm ignoring.\n" .
-      "Example: \"$me, status?\""
+      "Example: $me, status?"
       if $text =~ /\bstatus\b/i;
 
   return
@@ -1523,21 +1523,21 @@ sub help($$)
       "Typically this command serves to define an equivalence\n" .
       "between an IRC nickname and a GitHub username, so that\n" .
       "you can say \"action aaa:...\", where aaa is an IRC nick.\n" .
-      "Aliases: is, =. Example: \"$me, denis $1 \@deniak\"."
+      "Aliases: is, =. Example: $me, denis $1 \@deniak"
       if $text =~ /(\bis\b|=)/i;
 
   return
       "the command \"$me, $1 aaa\" tells me to stop\n" .
       "ignoring messages on IRC from user aaa.\n" .
       "See also \"$me, help ignore\".\n" .
-      "Example: \"$me, $1 agendabot\"."
+      "Example: $me, $1 agendabot"
       if $text =~ /\b(don't +ignore|do +not +ignore)\b/i;
 
   return
       "the command \"$me, ignore aaa\" tells me to ignore\n" .
       "messages on IRC from user aaa.\n" .
       "See also \"$me, help don't ignore\".\n" .
-      "Example: \"$me, ignore rrsagent\"."
+      "Example: $me, ignore rrsagent"
       if $text =~ /\bignore\b/i;
 
   return
@@ -1546,7 +1546,7 @@ sub help($$)
       "in repository xxx/yyy. If you omit xxx or xxx/yyy, I will find\n" .
       "the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"close #1\"."
+      "Example: close #1"
       if $text =~ /\bclose\b/i;
 
   return
@@ -1555,15 +1555,15 @@ sub help($$)
       "number nn in repository xxx/yyy. If you omit xxx or xxx/yyy,\n" .
       "I will find the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"reopen #1\"."
+      "Example: reopen #1"
       if $text =~ /\breopen\b/i;
 
   return
-      "the command \"$me, $1\" associates you with a GitHub\n" .
-      "account and allows me to access GitHub on your behalf. I will\n" .
-      "give you a one-time code (in a private message) to enter on\n" .
-      "https://github.com/login/device\n" .
-      "Aliases: auth me, authenticate me. Example: \"$me, auth me\"."
+      "the command \"$me, $1\" associates you with\n" .
+      "a GitHub account and allows me to access GitHub for you.\n" .
+      "I'll give you a one-time code (in a private message) to enter\n" .
+      "on https://github.com/login/device\n" .
+      "Aliases: auth me, authenticate me. Example: $me, auth me"
       if $text =~ /\b(auth +me|authenticate +me)\b/i;
 
   return
@@ -1578,8 +1578,8 @@ sub help($$)
       "or more conditions: \"with labels label1, label2...\" or\n" .
       "\"for name\" or \"by name\" or \"from repo\". I will list the\n" .
       "issues or actions that match those conditions.\n" .
-      "Example: \"$1 closed actions for joe from w3c/rdf-star\".\n" .
-      "Aliases: find, look up, get, search, search for, list."
+      "Aliases: find, look up, get, search, search for, list.\n" .
+      "Example: $me, list closed actions for pchampin from w3c/rdf-star"
       if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
 
   return
@@ -1589,8 +1589,8 @@ sub help($$)
       "The colon(:) is optional. If you omit xxx or xxx/yyy, I will\n" .
       "find the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"note #71: This is related to #70.\"\n" .
-      "Aliases: comment, note.\n"
+      "Aliases: comment, note.\n" .
+      "Example: note #71: This is related to #70."
       if $text =~ /\b(comment|note)\b/i;
 
   return
