@@ -13,7 +13,9 @@
 # for all known aliases?
 #
 # TODO: Lock the mapfile, to avoid damage if another instance of
-# ghurlbot is using the same file?
+# ghurlbot is using the same file? Also so not rewrite it, but write a
+# temporary file and move it, to avoid damage if ghurlbot is
+# interrupted while writing the file.
 #
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
@@ -29,6 +31,8 @@
 # account (or at least can look it up through the API at
 # https://api.github.com/user). Should we automatically add that
 # account to the list of aliases?
+#
+# TODO: Add a way to use other servers than github.com.
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -58,7 +62,6 @@ use File::Temp qw(tempfile tempdir);
 use File::Copy;
 use LWP;
 use LWP::ConnCache;
-# use JSON::PP;
 use JSON;
 use Date::Manip::Date;
 use Date::Manip::Delta;
@@ -67,12 +70,13 @@ use Net::Netrc;
 use POE::Session;
 use Encode qw(str2bytes bytes2str);
 
+use constant GITHUB_CLIENT_ID => 'Iv1.6702a1f710adcbde';
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant HOME => 'https://w3c.github.io/GHURLBot';
 use constant VERSION => '0.3';
 use constant DEFAULT_DELAY => 15;
 
-# GitHub limits requests to 5000 per hour per authenticated app (and
+# GitHub limits requests to 5000 per hour per authenticated user (and
 # will return 403 if the limit is exceeded). We impose an extra limit
 # of 100 changes to a given repository in 10 minutes.
 use constant MAXRATE => 100;
@@ -92,6 +96,7 @@ sub init($)
   $self->{suspend_issues} = {}; # Set of channels currently not expanding issues
   $self->{suspend_names} = {}; # Set of channels currently not expanding names
   $self->{repos} = {}; # Maps from a channel to a list of repository URLs
+  $self->{accesskeys} = {}; # Maps from a nick to an access token
 
   # Create a user agent to retrieve data from GitHub.
   $self->{ua} = LWP::UserAgent->new;
@@ -141,6 +146,7 @@ sub rewrite_rejoinfile($)
   my ($self) = @_;
 
   # assert: defined $self->{rejoinfile}
+  return if ! -w $self->{rejoinfile};
   eval {
     my ($temp, $tempname) = tempfile('/tmp/check-XXXXXX');
     print $temp "$_\n" foreach keys %{$self->{joined_channels}};
@@ -474,15 +480,17 @@ sub create_action_process($$$$$$$)
   my ($body, $self, $channel, $repository, $names, $text, $who) = @_;
   my (@names, @labels, $res, $content, $date, $due, $today);
 
+  # This is not a method, but a routine that is run as a background
+  # process by create_action(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
+
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
 
   @names = map($self->name_to_login($_),
 	       grep(/./, split(/ *,? +and +| *, */, $names)));
 
-  $today = new Date::Manip::Date;
-  $today->parse("today");
-
+  # If the action has a due date, remove it and put it in $date. Or use 1 week.
   $date = new Date::Manip::Date;
   if ($text =~ /^(.*)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
     $text = $1;
@@ -491,6 +499,8 @@ sub create_action_process($$$$$$$)
   }
 
   # When a due date is in the past, adjust the year and print a warning.
+  $today = new Date::Manip::Date;
+  $today->parse("today");
   if ($today->cmp($date) > 0) {
     my $delta = new Date::Manip::Delta;
     $delta->parse("+1 year");
@@ -552,13 +562,16 @@ sub create_action($$$$)
   my $repository;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
+  # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
   $repository =~ s/^https:\/\/github\.com\///i or
       return "Cannot create actions on $repository as it is not on github.com.";
 
+  # Check the rate limit.
   $self->check_and_update_rate($repository) or
       return "Sorry, for security reasons, I won't touch a repository more ".
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
@@ -577,6 +590,10 @@ sub create_issue_process($$$$$)
 {
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content);
+
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
@@ -615,16 +632,20 @@ sub create_issue($$$$)
   my $repository;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
+  # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
   $repository =~ s/^https:\/\/github\.com\///i or
       return "Cannot create issues on $repository as it is not on github.com.";
 
+  # Check the rate limit.
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&create_issue_process, channel => $channel,
@@ -639,6 +660,10 @@ sub close_issue_process($$$$$$)
 {
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content, $issuenumber);
+
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
@@ -683,7 +708,8 @@ sub close_issue($$$$)
   my $repository;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
@@ -691,8 +717,9 @@ sub close_issue($$$$)
       return "Cannot close issues on $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&close_issue_process, channel => $channel,
@@ -707,6 +734,10 @@ sub reopen_issue_process($$$$$)
 {
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content, $issuenumber, $comment);
+
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
@@ -762,7 +793,8 @@ sub reopen_issue($$$$)
   my $repository;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
@@ -770,8 +802,9 @@ sub reopen_issue($$$$)
       return "Cannot open issues on $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
@@ -786,6 +819,10 @@ sub comment_on_issue_process($$$$$$$)
 {
   my ($body, $self, $channel, $repository, $issue, $comment, $who) = @_;
   my ($issuenumber, $res, $content);
+
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
   ($issuenumber) = $issue =~ /#(.*)/; # Just the number
 
@@ -825,7 +862,8 @@ sub comment_on_issue($$$$$)
   my $repository;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
   $repository = $self->find_repository_for_issue($channel, $issue) or
       return "Sorry, I don't know what repository to use for $issue";
@@ -833,8 +871,9 @@ sub comment_on_issue($$$$$)
       return "Cannot add a comment to $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&comment_on_issue_process, channel => $channel,
@@ -1124,8 +1163,12 @@ sub find_issues_process($$$$$$$$$$)
 {
   my ($body, $self, $channel, $who, $state, $type, $labels, $creator,
     $assignee, $repo) = @_;
-  use constant MAX => 99;	# Must be < 100
+  use constant MAX => 99;	# Max # of issues to list. Must be < 100
   my ($owner, $res, $ref, $q, $s, $n);
+
+  # This is not a method, but a function that is called by forkit() to
+  # run as a background process. It prints text for the channel to
+  # STDOUT and log entries to STDERR.
 
   ($owner, $repo) =
       $repo =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
@@ -1133,9 +1176,6 @@ sub find_issues_process($$$$$$$$$$)
       return;
 
   $type = lc $type;
-
-  # TODO: Find out if there are more than MAX results and, if so, warn
-  # that the list is not complete.
 
   $labels =~ s/ //g if $labels;
   $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
@@ -1165,7 +1205,8 @@ sub find_issues_process($$$$$$$$$$)
   }
 
   $ref = decode_json($res->decoded_content);
-  $n = scalar @$ref < MAX ? scalar @$ref : MAX;
+  $n = @$ref;
+  $n = MAX if $n > MAX;
   $s = join(", ", map("#".$_->{number}, @$ref[0..$n-1]));
   $s .= " and more" if MAX < @$ref;
   print "Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
@@ -1178,7 +1219,8 @@ sub find_issues($$$$$$$$)
   my ($self,$channel,$who,$state,$type,$labels,$creator,$assignee,$repo) = @_;
 
   # Check that we have a GitHub accesskey for this nick.
-  return $self->ask_user_to_login($who) if !$self->accesskey($who);
+  $self->accesskey($who) or
+      return $self->ask_user_to_login($who);
 
   $repo = $self->find_matching_repository($channel, $repo // '') or
       return "Sorry, I don't know what repository to use.";
@@ -1213,7 +1255,10 @@ sub said($$)
   my $addressed = $info->{address};	# Defined if we're personally addressed
   my $do_issues = !defined $self->{suspend_issues}->{$channel};
 
-  return if $channel eq 'msg';		# We do not react to private messages
+  return $self->authenticate_nick($who)
+      if $channel eq 'msg' && $text =~ /^auth(?:enticate)? +me *\.? *$/i;
+
+  return if $channel eq 'msg';		# Do not react to other private messages
 
   $self->{linenumber}->{$channel}++;
 
@@ -1599,19 +1644,6 @@ sub chanpart($)
 }
 
 
-# # chanjoin -- called when somebody joins a channel
-# sub chanpart($)
-# {
-#   my $info = shift;
-#   my $who = $info->{who};
-#   my $channel = $info->{channel};
-#
-#   # Make sure the accesskeys hash exists.
-#   $self->{accesskeys} = {} if ! defined $self->{accesskeys};
-#
-# }
-
-
 # nick_change -- called when somebody changes his nick
 sub nick_change($$)
 {
@@ -1632,19 +1664,25 @@ sub nick_change($$)
 sub handle_ask_user_process_output
 {
   my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
-  chomp $body;
+
+  # This is not a method, but a POE event handler. It is called when
+  # ask_user_to_login_process() prints a line to STDOUT. $body has the
+  # contents of that line.
 
   # If the text starts with "say", just write it to IRC (minus the
   # "say"). If it starts with "code", it contains a nick and an access
   # token that we should store.
+  chomp $body;
   if (($body =~ s/^say //)) {
     # Pick up the default arguments we squirreled away earlier.
     my $args = $self->{forks}{$wheel_id}{args};
     $args->{body} = $body;
     $self->say($args);
-  } elsif ($body =~ /^code (.*)\t(.*)$/) {
-    $self->accesskey($1, $2);	# Store the access token $2 for nick $1
+  } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
+    $self->accesskey($1, $2);	# Store access token $2 for nick $1
     $self->log("Got an access token for $1");
+    # TODO: Also store the expires_in, refresh_token and
+    # refresh_token_expires_in parameters.
   } else {
     die "Bug: unrecognized output from ask_user_to_login_process(): $body\n";
   }
@@ -1658,13 +1696,22 @@ sub ask_user_to_login_process($$$)
   my ($body, $self, $who) = @_;
   my ($res, $content, $device_code, $user_code, $verification_uri, $interval);
 
+  # This is not a method, but a routine that is run as a background
+  # process by either ask_user_to_login() or authenticate_nick().
+  #
+  # It communicates with GitHub and produces three kinds of output:
+  # text to send to a user on IRC (printed on STDOUT as a line that
+  # starts with "say"), the result of the interaction with GitHun
+  # (printed as a line on STDOUT that starts with "code"), and text
+  # for the log (printed as a line of text on STDERR).
+
   # This follows GitHub's "device flow" method of authentication. See
   # https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app#using-the-device-flow-to-generate-a-user-access-token
 
   # First get a device code and user code from GitHub.
   print STDERR "Getting a device code from GitHub for $who\n";
   $res = $self->{ua}->post("https://github.com/login/device/code",
-    { client_id => $self->{client_id} },
+    { client_id => GITHUB_CLIENT_ID },
     Accept => 'application/json');
 
   if ($res->code != 200) {
@@ -1679,21 +1726,19 @@ sub ask_user_to_login_process($$$)
   # $expires_in = $content->{expires_in};
   $interval = $content->{interval};
 
-  # Prompt the user to log in to GitHub and enter the user code. The
-  # handler that handles our text output either writes to IRC (when
-  # the text starts with "say") or stores results (when the text starts
-  # with "code").
+  # Prompt the user to log in to GitHub and enter the user code.
   print "say You need to authorize me to act as your agent on GitHub.\n";
   print "say To do so, open $verification_uri in a browser.\n";
   print "say (GitHub may ask you to sign in.)\n";
   print "say Then enter this code: $user_code\n";
 
   # Poll GitHub every $interval seconds until GitHub gives us the
-  # user's access token, or we get an error (typically because the
-  # user did not respond within $expires_in seconds).
+  # user's access token, or we get an error.
   while (1) {
+    sleep($interval);
+
     $res = $self->{ua}->post("https://github.com/login/oauth/access_token",
-      { client_id => $self->{client_id}, device_code => $device_code,
+      { client_id => GITHUB_CLIENT_ID, device_code => $device_code,
 	grant_type => "urn:ietf:params:oauth:grant-type:device_code" },
       Accept => 'application/json');
 
@@ -1720,14 +1765,12 @@ sub ask_user_to_login_process($$$)
 	print STDERR "Bug: $content->{error}\n";
 	last;
       }
-    } else {			# We got an access token.
-      print "code $who\t$content->{access_token}\n";
-      # TODO: Also store the values of expires_in, refresh_token and
-      # refresh_token_expires_in and use them to refresh the
-      # access_token when it is about to expire.
+    } else {			# No error, i.e., we got an access token.
+      printf "code %s\t%s\t%s\t%s\t%s\n", $who, $content->{access_token},
+	  $content->{expires_in}, $content->{refresh_token},
+	  $content->{refresh_token_expires_in};
       last;
     }
-    sleep($interval);
   }
 }
 
@@ -1746,7 +1789,7 @@ sub ask_user_to_login($$)
 }
 
 
-# authenticate_nick -- get GitHub an accesskey for a nick
+# authenticate_nick -- get a GitHub accesskey for a nick
 sub authenticate_nick($$)
 {
   my ($self, $who) = @_;
@@ -1767,9 +1810,6 @@ sub accesskey($$;$)
 {
   my $self = shift;
   my $who = shift;
-
-  # Make sure the accesskeys hash exists.
-  $self->{accesskeys} = {} if ! exists $self->{accesskeys};
 
   # Set the new accesskey if one was given. Or delete it if the key is ''.
   if (@_) {
@@ -1834,7 +1874,7 @@ sub read_netrc($;$)
 my (%opts, $ssl, $proto, $user, $password, $host, $port, $channel);
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
-getopts('i:m:n:N:r:v', \%opts) or die "Try --help\n";
+getopts('m:n:N:r:v', \%opts) or die "Try --help\n";
 die "Usage: $0 [options] [--help] irc[s]://server...\n" if $#ARGV != 0;
 
 # The single argument must be an IRC-URL.
@@ -1873,9 +1913,6 @@ if (defined $user && !defined $password) {
 
 STDERR->autoflush(1);		# Write the log without buffering
 
-warn "Warning: Authentication of users will not be possible without option -i\n"
-    if !exists $opts{'i'};
-
 my $bot = GHURLBot->new(
   server => $host,
   port => $port,
@@ -1887,7 +1924,6 @@ my $bot = GHURLBot->new(
   channels => (defined $channel ? [$channel] : []),
   rejoinfile => $opts{'r'},
   mapfile => $opts{'m'} // 'ghurlbot.map',
-  client_id => $opts{'i'} // '',
   verbose => defined $opts{'v'});
 
 $bot->run();
@@ -1898,7 +1934,7 @@ $bot->run();
 
 =head1 NAME
 
-ghurlbot - IRC bot that gives the URLs for GitHub issues & users
+ghurlbot - IRC bot to manage GitHub issues or find their URLs
 
 =head1 SYNOPSIS
 
