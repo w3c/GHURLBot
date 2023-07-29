@@ -17,9 +17,15 @@
   <h1>Ghurlbot manual</h1>
 
   <p>Ghurlbot (<b>G</b>it<b>H</b>ub <b>URL</b> ro<b>bot</b>) is an IRC
-    bot that looks up GitHub issues, creates new issues and action
-    items, or closes them. It typically has the nickname ‘gb’ on IRC,
-    which is what we will use here.</p>
+    bot
+    and <a href="https://docs.github.com/en/apps/using-github-apps/about-using-github-apps"
+    >GitHub App</a> that looks up GitHub issues, creates new issues
+    and action items, or closes them. It typically has the nickname
+    ‘gb’ on IRC, which is what we will use here.</p>
+
+  <p>Commands that interact with GitHub, such as for looking up the
+    status of issues, can only be given by IRC users who have a GitHub
+    account. (Or the commands have limited functionality.)</p>
 
   <p>This manual describes how to interact with a running gb on
     IRC. A separate manual is included in
@@ -582,14 +588,14 @@
   <p>That authorization involves entering a one-time code in a web
     page on GitHub. It creates an association between your GitHub
     account, gb and your nick name on IRC. The association lasts
-    (currently) eight hours. It stops earlier if you disconnect from
+    (currently) eight hours. It ends earlier if you disconnect from
     IRC or leave all channels where gb is active (or if gb leaves all
     channels on which you are active). On the other hand, changing
-    your nick does not break the association: It simply moves to your
-    new nick.
+    your nick does not break the association: gb simply moves it to
+    your new nick.
 
   <p>You don't need to wait until gb tells you that authentication is
-    needed. Yo can start the process yourself with
+    needed. You can start the process yourself with
     the <code>authenticate me</code> command:</p>
 
   <pre class=command>&lt;joe&gt; gb, auth me
@@ -613,7 +619,7 @@
     repository, not per IRC channel. If multiple IRC channels use the
     same repository, their counts are added together.
 
-  <p>In addition, there is a limit on the total number of GitHub
+  <p>In addition, there is a limit per user on the total number of GitHub
     requests on all repositories and all channels. This includes
     making changes to issues, but also looking up information about an
     issue. This limit is imposed by GitHub and is currently 5000
