@@ -142,9 +142,8 @@
 	and repositories, and whether gb is turned off</a></td>
       </tr>
       <tr>
-	<td class=command><code>gb, account</code></td>
-	<td><a href="#account">Get the name of the GitHub account that
-	gb uses</a></td>
+	<td class=command><code>gb, auth me</code></td>
+	<td><a href="#account">Authenticate to GitHub</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, help</code></td>
@@ -175,12 +174,13 @@
     succeeds, it not only shows a URL, but also a summary, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: w3c/scribe2#15
-&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston)</pre>
+&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston)</pre>
 
-  <p>Gb fails to look up an issue if it does not have access to
-    a GitHub account or if the issue is in a private repository,
-    see <a href="#account" >‘GitHub account’</a>. (Gb may also
-    fail due to network problems.)</p>
+  <p>This only succeeds if (1) the user (i.e., ‘joe’ in the example
+    above) actually has access to that repository, and (2) gb is
+    authorized to act as the user's agent. See <a href="#account"
+    >‘GitHub account’</a>. (Gb may also fail due to network
+    problems.)</p>
 
   <p id=abbreviate>If you have told gb what repositories you are
     discussing
@@ -305,6 +305,9 @@
     gb's list. To create an issue in another repository, you
     need to move it to the top first.</p>
 
+  <p>Only users who have at least read access to a repository can
+    create issues in it. See <a href="#account" >‘GitHub account’</a>.
+
   <h2 id=create-action>Creating an action</h2>
 
   <p>You can create an action item for somebody with the
@@ -313,6 +316,9 @@
   <pre class=command>&lt;joe&gt; action alex: review chapter 1
 &lt;joe&gt; action: alex to review chapter 1
 &lt;joe&gt; action: alex: review chapter 1</pre>
+
+  <p>(Only users who have write access to a repository can create
+    actions in it. See <a href="#account" >‘GitHub account’</a>.)
 
   <p>You can assign an action to several people at once by separating
     their names with commas and/or the word ‘and’. E.g.:</p>
@@ -353,6 +359,10 @@
   <pre class=command>&lt;joe&gt; close aria#15
 &lt;joe&gt; close #13
 &lt;joe&gt; close w3c/aria#17</pre>
+
+  <p>(Only users who have write access to a repository can close
+    issues and actions in it. See <a href="#account" >‘GitHub
+    account’</a>.)
 
   <p>The
     issue number can include the full name of the repository or an
@@ -434,8 +444,8 @@
 
   <pre class=command>&lt;joe&gt; gb, list actions for me from rdf-star</pre>
 
-  <p>If the result contains more than 100 issues, gb will list
-    only the 100 highest numbers.</p>
+  <p>If the result contains more than 99 issues, gb will list
+    only the 99 highest numbers.</p>
 
   <h2 id=ignore>IRC nicks that should not open or close issues &amp;
     actions</h2>
@@ -554,33 +564,40 @@
 
   <h2 id=account>GitHub account</h2>
 
-  <p>Gb can be started with or without (the access codes for) a
-    GitHub account. Without an account, it will expand issue numbers
-    to URLs, but it cannot look up issue summaries and cannot create
-    any new issues or actions.</p>
+  <p>Users need to have a GitHub account for all commands that access
+    issues and actions in a repository, and that account must have
+    permission to read, and in some cases also to write that
+    repository. (Write permission is needed in particular to create
+    actions.)
 
-  <p>To find out what account gb was started with, use this
-    command:</p>
+  <p>In addition, users need to authorize gb to act on their behalf on
+    GitHub. (In GitHub's terms, gb is a ‘device’ through which users
+    connect to GitHub.)
 
-  <pre class=command>&lt;joe&gt; gb, who are you?
-&lt;gb&gt; I am using GitHub account joe-bot</pre>
+  <p>When you try to create an action, search for issues, or try to do
+    anything else that requires an account, gb will tell you that it
+    doesn't have access to GitHub and give instructions for how you
+    can authorize it.
 
-  <p>Instead of <code>who are you</code>, you can also
-    say <code>account</code>, <code>user</code> or <code>login</code>.
+  <p>That authorization involves entering a one-time code in a web
+    page on GitHub. It creates an association between your GitHub
+    account, gb and your nick name on IRC. The association lasts
+    (currently) eight hours. It stops earlier if you disconnect from
+    IRC or leave all channels where gb is active (or if gb leaves all
+    channels on which you are active). On the other hand, changing
+    your nick does not break the association: It simply moves to your
+    new nick.
 
-  <p>If gb, despite having access to a GitHub account, still
-    fails to look up issues or create new ones, it may be that the
-    repository is private. In that case the owners of the repository
-    will have to add gb's account to the list of accepted
-    collaborators.</p>
+  <p>You don't need to wait until gb tells you that authentication is
+    needed. Yo can start the process yourself with
+    the <code>authenticate me</code> command:</p>
 
-  <p>To be able to create an <em>action</em>, gb additionally
-    needs to have ‘push’ access to the repository it is adding the
-    action to. Without push access, it will create an issue
-    instead. Push access is typically not granted by default. The
-    owner of the repository will have to explicitly invite the account
-    that gb is using and give it at least write access to the
-    repository.
+  <pre class=command>&lt;joe&gt; gb, auth me
+&lt;gb&gt; I'll send you instructions in a private message.</pre>
+
+  <p>You can either say <code>auth me</code> or <code>authenticate
+    me</code>.
+
 
   <h2 id=help>Getting help</h2>
 
