@@ -12,11 +12,6 @@
 # TODO: A way to ask for the github login of a given nick? Or to ask
 # for all known aliases?
 #
-# TODO: Lock the mapfile, to avoid damage if another instance of
-# ghurlbot is using the same file? Also so not rewrite it, but write a
-# temporary file and move it, to avoid damage if ghurlbot is
-# interrupted while writing the file.
-#
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
 #
@@ -37,7 +32,7 @@
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
-# Copyright © 2022 World Wide Web Consortium, (Massachusetts Institute
+# Copyright © 2022-2023 World Wide Web Consortium, (Massachusetts Institute
 # of Technology, European Research Consortium for Informatics and
 # Mathematics, Keio University, Beihang). All Rights Reserved. This
 # work is distributed under the W3C® Software License
@@ -60,6 +55,7 @@ use Term::ReadKey;		# To read a password without echoing
 use open qw(:std :encoding(UTF-8)); # Undeclared streams in UTF-8
 use File::Temp qw(tempfile tempdir);
 use File::Copy;
+use Fcntl ':flock';
 use LWP;
 use LWP::ConnCache;
 use JSON;
@@ -117,26 +113,30 @@ sub init($)
 sub read_rejoin_list($)
 {
   my $self = shift;
+  my $mode;
 
-  if ($self->{rejoinfile}) {		# Option -r was given
-    if (-f $self->{rejoinfile}) {	# File exists
-      $self->log("Reading $self->{rejoinfile}");
-      open my $fh, "<", $self->{rejoinfile} or
-	  return "$self->{rejoinfile}: $!";
-      while (<$fh>) {
-	chomp;
-	$self->{joined_channels}->{$_} = 1;
-	$self->{linenumber}->{$_} = 0;
-	$self->{history}->{$_} = {};
-      }
-      # The connected() method takes care of rejoining those channels.
-    } else {				# File does not exist yet
-      $self->log("Creating $self->{rejoinfile}");
-      open my $fh, ">", $self->{rejoinfile} or
-	  $self->log("Cannot create $self->{rejoinfile}: $!");
-    }
+  return if ! $self->{rejoinfile};
+
+  # If the rejoinfile exists, open it for reading, but also for
+  # writing, because writing mode is needed to set a lock on it. If
+  # the file doesn't exist, create it.
+  $mode = -e $self->{rejoinfile} ? "+<" : ">";
+  open $self->{rejoinfile_handle}, $mode, $self->{rejoinfile} or
+      return "$self->{rejoinfile}: $!";
+  flock $self->{rejoinfile_handle}, LOCK_EX | LOCK_NB or
+      return "$self->{rejoinfile}: already in use";
+
+  return if $mode eq ">";	# File just created, nothing to read
+  $self->log("Reading $self->{rejoinfile}");
+  while (readline $self->{rejoinfile_handle}) {
+    chomp;
+    $self->{joined_channels}->{$_} = 1;
+    $self->{linenumber}->{$_} = 0;
+    $self->{history}->{$_} = {};
   }
-  return undef;				# No errors
+  # The connected() method takes care of rejoining those channels.
+  # Do not close the file. We want to keep a lock on it.
+  return;			# undef return means there were no errors
 }
 
 
@@ -145,13 +145,23 @@ sub rewrite_rejoinfile($)
 {
   my ($self) = @_;
 
-  # assert: defined $self->{rejoinfile}
-  return if ! -w $self->{rejoinfile};
+  return if ! $self->{rejoinfile};
   eval {
-    my ($temp, $tempname) = tempfile('/tmp/check-XXXXXX');
-    print $temp "$_\n" foreach keys %{$self->{joined_channels}};
-    close $temp;
+    # Write a temporary file in the same directory as rejoinfile. When
+    # done, rename it to rejoinfile. This way, the rejoinfile will
+    # always be a complete file, even if the program is interrupted.
+    # Get a lock on the temporary file before closing the filehandle
+    # of the old rejoinfile (which release the lock on that file).
+    my ($fh, $tempname) = tempfile($self->{rejoinfile}."XXXX", UNLINK => 1);
+    flock $fh, LOCK_EX | LOCK_NB or
+	$self->log("Cannot lock $tempname, continuing anyway");
+    foreach (keys %{$self->{joined_channels}}) {
+      print $fh "$_\n" or die "$tempname: $!";
+    }
+    $fh->flush;
     move($tempname, $self->{rejoinfile});
+    close $self->{rejoinfile_handle}; # Releases lock
+    $self->{rejoinfile_handle} = $fh;
   };
   $self->log($@) if $@;
 }
@@ -161,57 +171,62 @@ sub rewrite_rejoinfile($)
 sub read_mapfile($)
 {
   my $self = shift;
-  my $channel;
+  my ($channel, $fh, $mode);
 
-  if (-r $self->{mapfile} && ! -d $self->{mapfile}) { # Is a readable file
-    $self->log("Reading $self->{mapfile}");
-    open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
-    while (<$fh>) {
-      # Empty lines and line that start with "#" are ignored. Other
-      # lines must start with a keyword:
-      #
-      # alias NAME GITHUB-NAME
-      #   When an action is assigned to NAME, use GITHUB-NAME instead.
-      # channel CHANNEL
-      #   Lines up to the next "channel" apply to CHANNEL.
-      # repo REPO
-      #   Add REPO to the list of repositories for the current CHANNEL.
-      # delay NN
-      #   Set the delay for CHANNEL to NN.
-      # issues off
-      #   Do not expand issue references on CHANNEL.
-      # names off
-      #   Do not expand name references on CHANNEL.
-      # ignore NAME
-      #   Ignore commands that open/close issues when they come from NAME.
-      chomp;
-      if ($_ =~ /^#/) {
-	# Comment, ignored.
-      } elsif ($_ =~ /^\s*$/) {
-	# Empty line, ignored.
-      } elsif ($_ =~ /^\s*alias\s+([^\s]+)\s+([^\s]+)\s*$/) {
-	$self->{github_names}->{fc $1} = $2;
-      } elsif ($_ =~ /^\s*channel\s+([^\s]+)\s*$/) {
-	$channel = $1;
-      } elsif (! defined $channel) {
-	return "$self->{mapfile}:$.: missing \"channel\" line";
-      } elsif ($_ =~ /^\s*repo\b\s*([^\s]*)\s*$/) {
-	push @{$self->{repos}->{$channel}}, $1 if $1;
-      } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
-	$self->{delays}->{$channel} = 0 + $1;
-      } elsif ($_ =~ /\s*issues\s+off\s*$/) {
-	$self->{suspend_issues}->{$channel} = 1;
-      } elsif ($_ =~ /\s*names\s+off\s*$/) {
-	$self->{suspend_names}->{$channel} = 1;
-      } elsif ($_ =~ /\s*ignore\s+([^\s]+)\s*$/) {
-	$self->{ignored_nicks}->{$channel}->{fc $1} = $1;
-      } else {
-	return "$self->{mapfile}:$.: wrong syntax";
-      }
+  # If the file exists, open it for reading and writing, because write
+  # mode is needed to set a lock on it. Otherwise create it.
+  $mode = -e $self->{mapfile} ? "+<" : ">";
+  open $self->{mapfile_handle}, $mode, $self->{mapfile} or
+      return "$self->{mapfile}: $!";
+  flock $self->{mapfile_handle}, LOCK_EX | LOCK_NB or
+      return "$self->{mapfile}: already in use";
+
+  return if $mode eq ">";	# File just created, nothing to read
+  $self->log("Reading $self->{mapfile}");
+  while (readline $self->{mapfile_handle}) {
+    # Empty lines and line that start with "#" are ignored. Other
+    # lines must start with a keyword:
+    #
+    # alias NAME GITHUB-NAME
+    #   When an action is assigned to NAME, use GITHUB-NAME instead.
+    # channel CHANNEL
+    #   Lines up to the next "channel" apply to CHANNEL.
+    # repo REPO
+    #   Add REPO to the list of repositories for the current CHANNEL.
+    # delay NN
+    #   Set the delay for CHANNEL to NN.
+    # issues off
+    #   Do not expand issue references on CHANNEL.
+    # names off
+    #   Do not expand name references on CHANNEL.
+    # ignore NAME
+    #   Ignore commands that open/close issues when they come from NAME.
+    chomp;
+    if ($_ =~ /^#/) {
+      # Comment, ignored.
+    } elsif ($_ =~ /^\s*$/) {
+      # Empty line, ignored.
+    } elsif ($_ =~ /^\s*alias\s+([^\s]+)\s+([^\s]+)\s*$/) {
+      $self->{github_names}->{fc $1} = $2;
+    } elsif ($_ =~ /^\s*channel\s+([^\s]+)\s*$/) {
+      $channel = $1;
+    } elsif (! defined $channel) {
+      return "$self->{mapfile}:$.: missing \"channel\" line";
+    } elsif ($_ =~ /^\s*repo\b\s*([^\s]*)\s*$/) {
+      push @{$self->{repos}->{$channel}}, $1 if $1;
+    } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
+      $self->{delays}->{$channel} = 0 + $1;
+    } elsif ($_ =~ /\s*issues\s+off\s*$/) {
+      $self->{suspend_issues}->{$channel} = 1;
+    } elsif ($_ =~ /\s*names\s+off\s*$/) {
+      $self->{suspend_names}->{$channel} = 1;
+    } elsif ($_ =~ /\s*ignore\s+([^\s]+)\s*$/) {
+      $self->{ignored_nicks}->{$channel}->{fc $1} = $1;
+    } else {
+      return "$self->{mapfile}:$.: wrong syntax";
     }
-  } else {				# File does not exist yet
-    $self->log("Ignoring unreadable file $self->{mapfile}");
   }
+  # Do not close the file, because we want to keep a lock on it.
   return undef;				# No errors
 }
 
@@ -221,15 +236,19 @@ sub write_mapfile($)
 {
   my $self = shift;
 
-  # Sorting (of channel names, repo name and aliases) is not
-  # necessary, but helps make the mapfile more readable.
-  #
-  if (open my $fh, '>', $self->{mapfile}) {
+  eval {
+    my ($fh, $tempname) = tempfile($self->{mapfile}."XXXX", UNLINK => 1);
+    flock $fh, LOCK_EX | LOCK_NB or
+	$self->log("Cannot lock $tempname. Continuing anyway");
+
+    # Sorting (of channel names, repo name and aliases) is not
+    # necessary, but helps make the mapfile more readable.
+    #
     foreach my $channel
 	(sort(uniq(keys(%{$self->{repos}}), keys(%{$self->{suspend_issues}}),
 		   keys(%{$self->{suspend_names}}), keys(%{$self->{delays}}),
 		   keys(%{$self->{ignored_nicks}})))) {
-      printf $fh "channel %s\n", $channel;
+      printf $fh "channel %s\n", $channel or die $!;
       printf $fh "repo %s\n", $_ for sort @{$self->{repos}->{$channel} // []};
       printf $fh "delay %d\n", $self->{delays}->{$channel} if
 	  defined $self->{delays}->{$channel} &&
@@ -238,14 +257,17 @@ sub write_mapfile($)
       printf $fh "names off\n" if $self->{suspend_names}->{$channel};
       printf $fh "ignore %s\n", $_
 	  for sort values %{$self->{ignored_nicks}->{$channel} // {}};
-      printf $fh "\n";
+      printf $fh "\n" or die $!;
     }
     foreach my $nick (sort keys %{$self->{github_names} // {}}) {
-      printf $fh "alias %s %s\n", $nick, $self->{github_names}->{$nick};
+      printf $fh "alias %s %s\n",$nick,$self->{github_names}->{$nick} or die $!;
     }
-  } else {
-    $self->log("Cannot write $self->{mapfile}: $!");
-  }
+    $fh->flush;
+    move($tempname, $self->{mapfile});
+    close $self->{mapfile_handle}; # Releases lock
+    $self->{mapfile_handle} = $fh;
+  };
+  $self->log($@) if $@;
 }
 
 
@@ -261,7 +283,7 @@ sub part_channel($$)
   if (delete $self->{joined_channels}->{$channel}) {
 
     # If we keep a rejoin file, remove the channel from it.
-    $self->rewrite_rejoinfile() if $self->{rejoinfile};
+    $self->rewrite_rejoinfile();
   }
 }
 
@@ -283,11 +305,7 @@ sub chanjoin($$)
       $self->{history}->{$channel} = {};
 
       # If we keep a rejoin file, add the channel to it.
-      if ($self->{rejoinfile}) {
-	$self->rewrite_rejoinfile();
-	# if (open(my $fh, ">>", $self->{rejoinfile})) {print $fh "$channel\n"}
-	# else {$self->log("Cannot write $self->{rejoinfile}: $!")}
-      }
+      $self->rewrite_rejoinfile();
     }
   }
   return;
@@ -2061,14 +2079,10 @@ standard error.
 
 =item I<rejoin-file>
 
-When the B<-r> option is used, B<ghurlbot> reads this file when
-it starts and tries to join all channels it contains. It then updates
-the file whenever it leaves or joins a channel. The file is a simple
-list of channel names, one per line.
-
-If the file is not writable, B<ghurlbot> will function normally,
-but will obviously not be able to update the file. In verbose mode
-(B<-v>) it will write a message to standard error.
+When the B<-r> option is used, B<ghurlbot> starts by trying to join
+all channels in this file. It then updates the file whenever it leaves
+or joins a channel. The file is a simple list of channel names, one
+per line.
 
 =back
 
@@ -2078,10 +2092,6 @@ The I<map-file> and I<rejoin-file> only contain channel names, not the
 names of IRC networks or IRC servers. B<ghurlbot> cannot check
 that the channel names correspond to the IRC server it was started
 with.
-
-When B<ghurlbot> is killed in the midst of updating the
-I<map-file> or I<rejoin-file>, the file may become corrupted and
-prevent the program from restarting.
 
 =head1 AUTHOR
 
