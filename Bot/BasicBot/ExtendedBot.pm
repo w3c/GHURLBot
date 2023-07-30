@@ -482,21 +482,14 @@ sub irc_received_state
     $mess->{channel} = $channel;
   }
 
+  $mess->{body} = $body;
+
   # Okay, work out if we're addressed or not
 
-  $mess->{body} = $body;
-  if ($mess->{channel} ne "msg") {
-    my $own_nick = $self->nick;
-
-    if ($mess->{body} =~ s/^(\Q$own_nick\E)\s*,\s*//i) {
-      $mess->{address} = $1;
-    }
-
-    for my $alt_nick ($self->alt_nicks) {
-      last if $mess->{address};
-      if ($mess->{body} =~ s/^(\Q$alt_nick\E)\s*,\s*//i) {
-	$mess->{address} = $1;
-      }
+  for my $h (($self->nick, $self->alt_nicks)) {
+    if ($mess->{body} =~ s/^(\Q$h\E)\s*,\s*//i) {
+      $mess->{address} //= $1; # If not already set to "msg"
+      last;
     }
   }
 
