@@ -345,6 +345,37 @@
 
   <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
 
+  <h2 id=action-format>Creating &amp; editing actions without Gb</h2>
+
+  <p>If you create or edit an action by hand directly on GitHub, Gb
+    can still recognize it if you follow the following rules:</p>
+
+  <ol>
+    <li>
+      <p>An issue must at least have the label ‘action’ to be
+	recognized as an action. (It may have additional
+	labels.)</p></li>
+    <li>
+      <p>It must have one or more assignees.</p></li>
+    <li>
+      <p>If it has a due date, the due date must start with the word
+	‘due‘ and a colon (:) and look like either</p>
+      <pre>due: YYYY-MM-DD</pre>
+      <p>or</p>
+      <pre>due: YYYY-MM-DD (comment)</pre>
+      <p>where YYYY is the year (4 digits), MM is the month (2
+	digits), DD is the day (2 digits). E.g., ‘2023-08-30’. The
+	comment between parentheses is arbitrary text that does not
+	contain a closing parenthesis. The word ‘due’ may have both
+	upper- and lowercase letters (‘DUE’, ‘Due’, ‘DuE’, etc.). A
+	due date like this must be either at the start of the body of
+	the action, with nothing before it except maybe some white
+	space; or at the end of the body, with nothing after it except
+	possibly white space and/or a period. (If you put a due date
+	both at the start and at the end, Gb will use the one at the
+	start.)</p></li>
+  </ol>
+
   <h2 id=close>Closing an issue or action</h2>
 
   <p>You can close an issue or action by starting a line
