@@ -5,7 +5,7 @@ channel on IRC. It is typically known as ‘gb’ on IRC. E.g.:
     <joe> Let's discuss issue #13.
     <gb> https://github.com/xxx/yyy/issues/13 -> #13
 
-Users who have an account on GitHub can also authorize gb to look up,
+Users who have an account on GitHub can authorize gb to look up,
 create, or close issues (or action items) for them. (An ‘action item’
 is an issue that has at least one assignee, has a due date, and is
 labeled ‘action’.) E.g.:
