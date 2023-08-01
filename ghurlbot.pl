@@ -9,8 +9,8 @@
 #
 # TODO: Allow "action-9" as an alternative for "#9"?
 #
-# TODO: A way to ask for the github login of a given nick? Or to ask
-# for all known aliases?
+# TODO: A way for a user to ask for the github login of a given nick?
+# Or to ask for all known aliases?
 #
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
@@ -21,11 +21,6 @@
 # JSON.)
 #
 # TODO: Add and remove labels from issues?
-#
-# TODO: When we have an accesskey for a user, we know his GitHub
-# account (or at least can look it up through the API at
-# https://api.github.com/user). Should we automatically add that
-# account to the list of aliases?
 #
 # TODO: Add a way to use other servers than github.com.
 #
@@ -92,7 +87,8 @@ sub init($)
   $self->{suspend_issues} = {}; # Set of channels currently not expanding issues
   $self->{suspend_names} = {}; # Set of channels currently not expanding names
   $self->{repos} = {}; # Maps from a channel to a list of repository URLs
-  $self->{accesskeys} = {}; # Maps from a nick to an access token
+  $self->{accesskeys} = {}; # Maps from a nick to a GitHub access token & login
+  $self->{github_names} = {}; # Maps from a nick to a GitHub login
 
   # Create a user agent to retrieve data from GitHub.
   $self->{ua} = LWP::UserAgent->new;
@@ -100,6 +96,7 @@ sub init($)
   $self->{ua}->timeout(10);
   $self->{ua}->conn_cache(LWP::ConnCache->new);
   $self->{ua}->env_proxy;
+  $self->{ua}->default_header('X-GitHub-Api-Version', '2022-11-28');
 
   $errmsg = $self->read_rejoin_list() and die "$errmsg\n";
   $errmsg = $self->read_mapfile() and die "$errmsg\n";
@@ -457,8 +454,14 @@ sub find_repository_for_issue($$$)
 sub name_to_login($$)
 {
   my ($self, $nick) = @_;
+  my ($token, $login);
 
-  return $1 if $nick =~ /^@(.*)/; # A name prefixed with "@" is a GitHub login
+  # A name prefixed with "@" is assumed to be a GitHub login.
+  # If we have an access token for the nick, we know his login.
+  # If we have an alias for the nick, use that.
+  # Otherwise just return the nick itself.
+  return $1 if $nick =~ /^@(.*)/;
+  return $login if (($token, $login) = $self->accesskey($nick)) && $token ne '';
   return $self->{github_names}->{fc $nick} // $nick;
 }
 
@@ -1355,10 +1358,6 @@ sub said($$)
 	$text =~ /^action *[:：] *(.*?)(?: +to | *[:：])(.*)$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
-  return $self->account_info($channel)
-      if $addressed &&
-      $text =~ /^(?:who +are +you|account|user|login) *\?? *$/i;
-
   return $self->add_ignored_nicks($channel, $1)
       if $addressed && $text =~ /^ignore *(.*?)$/i;
 
@@ -1645,7 +1644,7 @@ sub chanpart($)
   #
   if ($self->accesskey($who) && !$self->pocoirc->nick_info($who)) {
     $self->accesskeys($who, '');
-    $self->log("$who left all our channels; removed acceskey");
+    $self->log("$who left all our channels; removed accesskey");
   }
 
   # If it is us who leaves a channel, we remove all accesskeys of
@@ -1696,9 +1695,9 @@ sub handle_ask_user_process_output
     my $args = $self->{forks}{$wheel_id}{args};
     $args->{body} = $body;
     $self->say($args);
-  } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
-    $self->accesskey($1, $2);	# Store access token $2 for nick $1
-    $self->log("Got an access token for $1");
+  } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
+    $self->accesskey($1, $2, $3); # Store token $2 and login $3 for nick $1
+    $self->log("Got an access token for $1 (= \@$3)");
     # TODO: Also store the expires_in, refresh_token and
     # refresh_token_expires_in parameters.
   } else {
@@ -1712,7 +1711,9 @@ sub handle_ask_user_process_output
 sub ask_user_to_login_process($$$)
 {
   my ($body, $self, $who) = @_;
-  my ($res, $content, $device_code, $user_code, $verification_uri, $interval);
+  my ($res, $content, $device_code, $user_code, $verification_uri,
+      $interval, $access_token, $expires_in, $refresh_token,
+      $refresh_token_expires_in);
 
   # This is not a method, but a routine that is run as a background
   # process by either ask_user_to_login() or authenticate_nick().
@@ -1784,12 +1785,28 @@ sub ask_user_to_login_process($$$)
 	last;
       }
     } else {			# No error, i.e., we got an access token.
-      printf "code %s\t%s\t%s\t%s\t%s\n", $who, $content->{access_token},
-	  $content->{expires_in}, $content->{refresh_token},
-	  $content->{refresh_token_expires_in};
+      $access_token = $content->{access_token};
+      $expires_in = $content->{expires_in};
+      $refresh_token = $content->{refresh_token};
+      $refresh_token_expires_in = $content->{refresh_token_expires_in};
       last;
     }
   }
+
+  # Now get the login of the user through another API.
+  $res = $self->{ua}->get("https://api.github.com/user",
+			  Accept => 'application/json',
+			  Authorization => 'Bearer ' . $access_token);
+  if ($res->code != 200) {
+    print STDERR "Error getting GitHub user info for $who: $res->code\n";
+    print "say Error while getting info from GitHub. Authentication failed.\n";
+    return;
+  }
+  $content = decode_json($res->decoded_content);
+
+  # Return all info through the output handler.
+  printf "code %s\t%s\t%s\t%s\t%s\t%s\n", $who, $access_token,
+      $content->{login}, $expires_in, $refresh_token, $refresh_token_expires_in;
 }
 
 
@@ -1835,19 +1852,23 @@ sub deauthenticate_nick($$)
 
 
 # accesskey -- get or set the GitHub accesskey for a nick, '' if undefined
-sub accesskey($$;$)
+sub accesskey($$;@)
 {
   my $self = shift;
   my $who = shift;
 
   # Set the new accesskey if one was given. Or delete it if the key is ''.
   if (@_) {
-    $self->{accesskeys}->{$who} = shift;
-    delete $self->{accesskeys}->{$who} if $self->{accesskeys}->{$who} eq '';
+    $self->{accesskeys}->{$who}->{access_token} = shift;
+    $self->{accesskeys}->{$who}->{login} = shift;
+    delete $self->{accesskeys}->{$who} if
+	$self->{accesskeys}->{$who}->{access_token} eq '';
   }
 
-  # Return the current accesskey for nick $who.
-  return $self->{accesskeys}->{$who} // '';
+  # Return the current info for nick $who, or just the accesskey.
+  return ($self->{accesskey}->{$who}->{access_token} // '',
+	  $self->{accesskey}->{$who}->{login}) if wantarray;
+  return $self->{accesskeys}->{$who}->{access_token} // '';
 }
 
 
