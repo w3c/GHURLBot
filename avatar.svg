@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   height="32"
+   viewBox="0 0 16 16"
+   version="1.1"
+   width="32"
+   id="svg4"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata
+     id="metadata10">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <defs
+     id="defs8" />
+  <circle
+     style="fill:#b72fb7;stroke-width:0;stroke-linecap:square;stroke-linejoin:round"
+     id="path869"
+     cx="8"
+     cy="8"
+     r="8" />
+  <g
+     aria-label="#"
+     id="text837"
+     style="font-weight:bold;font-size:10.6667px;font-family:Lato;-inkscape-font-specification:'Lato, Bold';letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#fefefe;stroke-width:0.5px">
+    <path
+       d="m 12.275607,11.058745 -0.405335,2.176007 H 11.26227 q -0.09067,0 -0.170667,-0.04267 -0.08,-0.04267 -0.133333,-0.117334 -0.05333,-0.07467 -0.08,-0.170667 -0.02133,-0.101334 0.0053,-0.213334 l 0.309334,-1.632005 H 10.0996 L 9.7902658,12.75475 Q 9.747599,13.010751 9.5769318,13.122751 9.4062646,13.234752 9.198264,13.234752 H 8.6115954 L 9.0169301,11.058745 H 8.4035948 q -0.2026673,0 -0.2880009,-0.117334 -0.085334,-0.122667 -0.042667,-0.410668 l 0.069334,-0.421335 H 9.1502638 L 9.427598,8.6374038 H 8.2862611 L 8.3875947,8.0880688 Q 8.4302615,7.8854015 8.5582619,7.7894012 8.6862623,7.6880675 8.9689299,7.6880675 H 9.5609318 L 9.8915995,5.9707288 Q 9.9342663,5.7573947 10.088933,5.640061 10.243601,5.5227273 10.451601,5.5227273 h 0.602669 l -0.410668,2.1653402 h 1.093337 l 0.410668,-2.1653402 h 0.586668 q 0.202667,0 0.325334,0.1333338 0.122668,0.1280004 0.09067,0.3253344 l -0.330667,1.706672 h 1.077336 l -0.096,0.5493351 q -0.04267,0.2026673 -0.170667,0.3040009 -0.128,0.096 -0.410668,0.096 h -0.533335 l -0.277334,1.4720042 h 0.757336 q 0.202667,0 0.288,0.122668 0.09067,0.117333 0.048,0.410668 l -0.06933,0.416001 z m -2.042673,-0.949337 h 1.093337 l 0.277334,-1.4720042 h -1.093337 z"
+       id="path610" />
+  </g>
+</svg>
