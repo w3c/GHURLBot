@@ -14,11 +14,8 @@
 # that they have a GitHub account and maybe ghurlbot can find out if
 # that account has the right to close an issue?)
 #
-# TODO: A way to ask for the github login of a given nick? Or to ask
-# for all known aliases?
-#
-# TODO: Lock the mapfile, to avoid damage if another instance of
-# ghurlbot is using the same file?
+# TODO: A way for a user to ask for the github login of a given nick?
+# Or to ask for all known aliases?
 #
 # TODO: Should all responses from the bot other than expanded
 # references be emoted ("/me")?
@@ -28,15 +25,14 @@
 # using the "body_text" field instead of "body" from the returned
 # JSON.)
 #
-# TODO: When listing issues and the result has 100 items, check if
-# there are more and if so, say so on IRC.
-#
 # TODO: Add and remove labels from issues?
+#
+# TODO: Add a way to use other servers than github.com.
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
-# Copyright © 2022 World Wide Web Consortium, (Massachusetts Institute
+# Copyright © 2022-2023 World Wide Web Consortium, (Massachusetts Institute
 # of Technology, European Research Consortium for Informatics and
 # Mathematics, Keio University, Beihang). All Rights Reserved. This
 # work is distributed under the W3C® Software License
@@ -59,9 +55,9 @@ use Term::ReadKey;		# To read a password without echoing
 use open qw(:std :encoding(UTF-8)); # Undeclared streams in UTF-8
 use File::Temp qw(tempfile tempdir);
 use File::Copy;
+use Fcntl ':flock';
 use LWP;
 use LWP::ConnCache;
-# use JSON::PP;
 use JSON;
 use Date::Manip::Date;
 use Date::Manip::Delta;
@@ -74,7 +70,7 @@ use constant HOME => 'https://w3c.github.io/GHURLBot';
 use constant VERSION => '0.3';
 use constant DEFAULT_DELAY => 15;
 
-# GitHub limits requests to 5000 per hour per authenticated app (and
+# GitHub limits requests to 5000 per hour per authenticated user (and
 # will return 403 if the limit is exceeded). We impose an extra limit
 # of 100 changes to a given repository in 10 minutes.
 use constant MAXRATE => 100;
@@ -102,6 +98,7 @@ sub init($)
     $self->{ua}->timeout(10);
     $self->{ua}->conn_cache(LWP::ConnCache->new);
     $self->{ua}->env_proxy;
+    $self->{ua}->default_header('X-GitHub-Api-Version', '2022-11-28');
     $self->{ua}->default_header(
       'Authorization' => 'token ' . $self->{github_api_token});
   }
@@ -118,26 +115,30 @@ sub init($)
 sub read_rejoin_list($)
 {
   my $self = shift;
+  my $mode;
 
-  if ($self->{rejoinfile}) {		# Option -r was given
-    if (-f $self->{rejoinfile}) {	# File exists
-      $self->log("Reading $self->{rejoinfile}");
-      open my $fh, "<", $self->{rejoinfile} or
-	  return "$self->{rejoinfile}: $!";
-      while (<$fh>) {
-	chomp;
-	$self->{joined_channels}->{$_} = 1;
-	$self->{linenumber}->{$_} = 0;
-	$self->{history}->{$_} = {};
-      }
-      # The connected() method takes care of rejoining those channels.
-    } else {				# File does not exist yet
-      $self->log("Creating $self->{rejoinfile}");
-      open my $fh, ">", $self->{rejoinfile} or
-	  $self->log("Cannot create $self->{rejoinfile}: $!");
-    }
+  return if ! $self->{rejoinfile};
+
+  # If the rejoinfile exists, open it for reading, but also for
+  # writing, because writing mode is needed to set a lock on it. If
+  # the file doesn't exist, create it.
+  $mode = -e $self->{rejoinfile} ? "+<" : ">";
+  open $self->{rejoinfile_handle}, $mode, $self->{rejoinfile} or
+      return "$self->{rejoinfile}: $!";
+  flock $self->{rejoinfile_handle}, LOCK_EX | LOCK_NB or
+      return "$self->{rejoinfile}: already in use";
+
+  return if $mode eq ">";	# File just created, nothing to read
+  $self->log("Reading $self->{rejoinfile}");
+  while (readline $self->{rejoinfile_handle}) {
+    chomp;
+    $self->{joined_channels}->{$_} = 1;
+    $self->{linenumber}->{$_} = 0;
+    $self->{history}->{$_} = {};
   }
-  return undef;				# No errors
+  # The connected() method takes care of rejoining those channels.
+  # Do not close the file. We want to keep a lock on it.
+  return;			# undef return means there were no errors
 }
 
 
@@ -146,12 +147,23 @@ sub rewrite_rejoinfile($)
 {
   my ($self) = @_;
 
-  # assert: defined $self->{rejoinfile}
+  return if ! $self->{rejoinfile};
   eval {
-    my ($temp, $tempname) = tempfile('/tmp/check-XXXXXX');
-    print $temp "$_\n" foreach keys %{$self->{joined_channels}};
-    close $temp;
+    # Write a temporary file in the same directory as rejoinfile. When
+    # done, rename it to rejoinfile. This way, the rejoinfile will
+    # always be a complete file, even if the program is interrupted.
+    # Get a lock on the temporary file before closing the filehandle
+    # of the old rejoinfile (which release the lock on that file).
+    my ($fh, $tempname) = tempfile($self->{rejoinfile}."XXXX", UNLINK => 1);
+    flock $fh, LOCK_EX | LOCK_NB or
+	$self->log("Cannot lock $tempname, continuing anyway");
+    foreach (keys %{$self->{joined_channels}}) {
+      print $fh "$_\n" or die "$tempname: $!";
+    }
+    $fh->flush;
     move($tempname, $self->{rejoinfile});
+    close $self->{rejoinfile_handle}; # Releases lock
+    $self->{rejoinfile_handle} = $fh;
   };
   $self->log($@) if $@;
 }
@@ -161,57 +173,62 @@ sub rewrite_rejoinfile($)
 sub read_mapfile($)
 {
   my $self = shift;
-  my $channel;
+  my ($channel, $fh, $mode);
 
-  if (-r $self->{mapfile} && ! -d $self->{mapfile}) { # Is a readable file
-    $self->log("Reading $self->{mapfile}");
-    open my $fh, '<', $self->{mapfile} or return "$self->{mapfile}: $!";
-    while (<$fh>) {
-      # Empty lines and line that start with "#" are ignored. Other
-      # lines must start with a keyword:
-      #
-      # alias NAME GITHUB-NAME
-      #   When an action is assigned to NAME, use GITHUB-NAME instead.
-      # channel CHANNEL
-      #   Lines up to the next "channel" apply to CHANNEL.
-      # repo REPO
-      #   Add REPO to the list of repositories for the current CHANNEL.
-      # delay NN
-      #   Set the delay for CHANNEL to NN.
-      # issues off
-      #   Do not expand issue references on CHANNEL.
-      # names off
-      #   Do not expand name references on CHANNEL.
-      # ignore NAME
-      #   Ignore commands that open/close issues when they come from NAME.
-      chomp;
-      if ($_ =~ /^#/) {
-	# Comment, ignored.
-      } elsif ($_ =~ /^\s*$/) {
-	# Empty line, ignored.
-      } elsif ($_ =~ /^\s*alias\s+([^\s]+)\s+([^\s]+)\s*$/) {
-	$self->{github_names}->{fc $1} = $2;
-      } elsif ($_ =~ /^\s*channel\s+([^\s]+)\s*$/) {
-	$channel = $1;
-      } elsif (! defined $channel) {
-	return "$self->{mapfile}:$.: missing \"channel\" line";
-      } elsif ($_ =~ /^\s*repo\b\s*([^\s]*)\s*$/) {
-	push @{$self->{repos}->{$channel}}, $1 if $1;
-      } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
-	$self->{delays}->{$channel} = 0 + $1;
-      } elsif ($_ =~ /\s*issues\s+off\s*$/) {
-	$self->{suspend_issues}->{$channel} = 1;
-      } elsif ($_ =~ /\s*names\s+off\s*$/) {
-	$self->{suspend_names}->{$channel} = 1;
-      } elsif ($_ =~ /\s*ignore\s+([^\s]+)\s*$/) {
-	$self->{ignored_nicks}->{$channel}->{fc $1} = $1;
-      } else {
-	return "$self->{mapfile}:$.: wrong syntax";
-      }
+  # If the file exists, open it for reading and writing, because write
+  # mode is needed to set a lock on it. Otherwise create it.
+  $mode = -e $self->{mapfile} ? "+<" : ">";
+  open $self->{mapfile_handle}, $mode, $self->{mapfile} or
+      return "$self->{mapfile}: $!";
+  flock $self->{mapfile_handle}, LOCK_EX | LOCK_NB or
+      return "$self->{mapfile}: already in use";
+
+  return if $mode eq ">";	# File just created, nothing to read
+  $self->log("Reading $self->{mapfile}");
+  while (readline $self->{mapfile_handle}) {
+    # Empty lines and line that start with "#" are ignored. Other
+    # lines must start with a keyword:
+    #
+    # alias NAME GITHUB-NAME
+    #   When an action is assigned to NAME, use GITHUB-NAME instead.
+    # channel CHANNEL
+    #   Lines up to the next "channel" apply to CHANNEL.
+    # repo REPO
+    #   Add REPO to the list of repositories for the current CHANNEL.
+    # delay NN
+    #   Set the delay for CHANNEL to NN.
+    # issues off
+    #   Do not expand issue references on CHANNEL.
+    # names off
+    #   Do not expand name references on CHANNEL.
+    # ignore NAME
+    #   Ignore commands that open/close issues when they come from NAME.
+    chomp;
+    if ($_ =~ /^#/) {
+      # Comment, ignored.
+    } elsif ($_ =~ /^\s*$/) {
+      # Empty line, ignored.
+    } elsif ($_ =~ /^\s*alias\s+([^\s]+)\s+([^\s]+)\s*$/) {
+      $self->{github_names}->{fc $1} = $2;
+    } elsif ($_ =~ /^\s*channel\s+([^\s]+)\s*$/) {
+      $channel = $1;
+    } elsif (! defined $channel) {
+      return "$self->{mapfile}:$.: missing \"channel\" line";
+    } elsif ($_ =~ /^\s*repo\b\s*([^\s]*)\s*$/) {
+      push @{$self->{repos}->{$channel}}, $1 if $1;
+    } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
+      $self->{delays}->{$channel} = 0 + $1;
+    } elsif ($_ =~ /\s*issues\s+off\s*$/) {
+      $self->{suspend_issues}->{$channel} = 1;
+    } elsif ($_ =~ /\s*names\s+off\s*$/) {
+      $self->{suspend_names}->{$channel} = 1;
+    } elsif ($_ =~ /\s*ignore\s+([^\s]+)\s*$/) {
+      $self->{ignored_nicks}->{$channel}->{fc $1} = $1;
+    } else {
+      return "$self->{mapfile}:$.: wrong syntax";
     }
-  } else {				# File does not exist yet
-    $self->log("Ignoring unreadable file $self->{mapfile}");
   }
+  # Do not close the file, because we want to keep a lock on it.
   return undef;				# No errors
 }
 
@@ -221,15 +238,19 @@ sub write_mapfile($)
 {
   my $self = shift;
 
-  # Sorting (of channel names, repo name and aliases) is not
-  # necessary, but helps make the mapfile more readable.
-  #
-  if (open my $fh, '>', $self->{mapfile}) {
+  eval {
+    my ($fh, $tempname) = tempfile($self->{mapfile}."XXXX", UNLINK => 1);
+    flock $fh, LOCK_EX | LOCK_NB or
+	$self->log("Cannot lock $tempname. Continuing anyway");
+
+    # Sorting (of channel names, repo name and aliases) is not
+    # necessary, but helps make the mapfile more readable.
+    #
     foreach my $channel
 	(sort(uniq(keys(%{$self->{repos}}), keys(%{$self->{suspend_issues}}),
 		   keys(%{$self->{suspend_names}}), keys(%{$self->{delays}}),
 		   keys(%{$self->{ignored_nicks}})))) {
-      printf $fh "channel %s\n", $channel;
+      printf $fh "channel %s\n", $channel or die $!;
       printf $fh "repo %s\n", $_ for sort @{$self->{repos}->{$channel} // []};
       printf $fh "delay %d\n", $self->{delays}->{$channel} if
 	  defined $self->{delays}->{$channel} &&
@@ -238,14 +259,17 @@ sub write_mapfile($)
       printf $fh "names off\n" if $self->{suspend_names}->{$channel};
       printf $fh "ignore %s\n", $_
 	  for sort values %{$self->{ignored_nicks}->{$channel} // {}};
-      printf $fh "\n";
+      printf $fh "\n" or die $!;
     }
     foreach my $nick (sort keys %{$self->{github_names} // {}}) {
-      printf $fh "alias %s %s\n", $nick, $self->{github_names}->{$nick};
+      printf $fh "alias %s %s\n",$nick,$self->{github_names}->{$nick} or die $!;
     }
-  } else {
-    $self->log("Cannot write $self->{mapfile}: $!");
-  }
+    $fh->flush;
+    move($tempname, $self->{mapfile});
+    close $self->{mapfile_handle}; # Releases lock
+    $self->{mapfile_handle} = $fh;
+  };
+  $self->log($@) if $@;
 }
 
 
@@ -261,7 +285,7 @@ sub part_channel($$)
   if (delete $self->{joined_channels}->{$channel}) {
 
     # If we keep a rejoin file, remove the channel from it.
-    $self->rewrite_rejoinfile() if $self->{rejoinfile};
+    $self->rewrite_rejoinfile();
   }
 }
 
@@ -283,11 +307,7 @@ sub chanjoin($$)
       $self->{history}->{$channel} = {};
 
       # If we keep a rejoin file, add the channel to it.
-      if ($self->{rejoinfile}) {
-	$self->rewrite_rejoinfile();
-	# if (open(my $fh, ">>", $self->{rejoinfile})) {print $fh "$channel\n"}
-	# else {$self->log("Cannot write $self->{rejoinfile}: $!")}
-      }
+      $self->rewrite_rejoinfile();
     }
   }
   return;
@@ -483,16 +503,10 @@ sub create_action_process($$$$$$$)
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
 
-  $repository =~ s/^https:\/\/github\.com\///i or
-      print "Cannot create actions on $repository as it is not on github.com.\n"
-      and return;
-
   @names = map($self->name_to_login($_),
 	       grep(/./, split(/ *,? +and +| *, */, $names)));
 
-  $today = new Date::Manip::Date;
-  $today->parse("today");
-
+  # If the action has a due date, remove it and put it in $date. Or use 1 week.
   $date = new Date::Manip::Date;
   if ($text =~ /^(.*)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
     $text = $1;
@@ -501,6 +515,8 @@ sub create_action_process($$$$$$$)
   }
 
   # When a due date is in the past, adjust the year and print a warning.
+  $today = new Date::Manip::Date;
+  $today->parse("today");
   if ($today->cmp($date) > 0) {
     my $delta = new Date::Manip::Delta;
     $delta->parse("+1 year");
@@ -567,9 +583,13 @@ sub create_action($$$$)
   return "Sorry, I cannot create actions, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
 
+  # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
+  $repository =~ s/^https:\/\/github\.com\///i or
+      return "Cannot create actions on $repository as it is not on github.com.";
 
+  # Check the rate limit.
   $self->check_and_update_rate($repository) or
       return "Sorry, for security reasons, I won't touch a repository more ".
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
@@ -634,12 +654,17 @@ sub create_issue($$$$)
   return "Sorry, I cannot create issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
 
+  # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
+  $repository =~ s/^https:\/\/github\.com\///i or
+      return "Cannot create issues on $repository as it is not on github.com.";
 
+  # Check the rate limit.
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&create_issue_process, channel => $channel,
@@ -655,10 +680,11 @@ sub close_issue_process($$$$$$)
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content, $issuenumber, $login);
 
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
+
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
-  $repository =~ s/^https:\/\/github\.com\///i  or
-      print "Cannot close issues on $repository as it is not on github.com.\n"
-      and return;
 
   # Add a comment saying who closed the issue and then close it.
   $login = $self->name_to_login($who);
@@ -712,10 +738,13 @@ sub close_issue($$$$)
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      return "Cannot close issues on $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&close_issue_process, channel => $channel,
@@ -731,12 +760,13 @@ sub reopen_issue_process($$$$$)
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content, $issuenumber, $comment, $login);
 
-  ($issuenumber) = $text =~ /#(.*)/; # Just the number
-  $repository =~ s/^https:\/\/github\.com\///i  or
-      print "Cannot open issues on $repository as it is not on github.com.\n"
-      and return;
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
-  # Reopena and add a comment saying who reopened the issue.
+  ($issuenumber) = $text =~ /#(.*)/; # Just the number
+
+  # Reopen and add a comment saying who reopened the issue.
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
   $res = $self->{ua}->post(
@@ -800,10 +830,13 @@ sub reopen_issue($$$$)
 
   $repository = $self->find_repository_for_issue($channel, $text) or
       return "Sorry, I don't know what repository to use for $text";
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      return "Cannot open issues on $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&reopen_issue_process, channel => $channel,
@@ -819,10 +852,12 @@ sub comment_on_issue_process($$$$$$$)
   my ($body, $self, $channel, $repository, $issue, $comment, $who) = @_;
   my ($issuenumber, $res, $login, $content);
 
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
+
   ($issuenumber) = $issue =~ /#(.*)/; # Just the number
-  $repository =~ s/^https:\/\/github\.com\///i  or
-      print "Cannot add a comment to $repository as it is not on github.com.\n"
-      and return;
+
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
   $res = $self->{ua}->post(
@@ -866,10 +901,13 @@ sub comment_on_issue($$$$$)
 
   $repository = $self->find_repository_for_issue($channel, $issue) or
       return "Sorry, I don't know what repository to use for $issue";
+  $repository =~ s/^https:\/\/github\.com\///i  or
+      return "Cannot add a comment to $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
-      return "Sorry, for security reasons, I won't touch a repository more than ".MAXRATE.
-      " times in ".RATEPERIOD." minutes. Please, try again later.";
+      return "Sorry, for security reasons, I won't touch a repository more " .
+      "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
+      "Please, try again later.";
 
   $self->forkit(
     {run => \&comment_on_issue_process, channel => $channel,
@@ -947,7 +985,7 @@ sub get_issue_summary_process($$$$)
 
   $res = $self->{ua}->get(
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
-    'Accept' => 'application/json');
+    Accept => 'application/json');
 
   print STDERR "Channel $channel, info $repository#$issue -> ",$res->code,"\n";
 
@@ -1203,11 +1241,13 @@ sub find_issues_process($$$$$$$$$$)
 {
   my ($body, $self, $channel, $who, $state, $type, $labels, $creator,
     $assignee, $repo) = @_;
-  my ($owner, $res, $ref, $q, $s);
+  use constant MAX => 99;	# Max # of issues to list. Must be < 100
+  my ($owner, $res, $ref, $q, $s, $n);
 
-  $repo = $self->find_matching_repository($channel, $repo // '') or
-      print "Sorry, I don't know what repository to use." and
-      return;
+  # This is not a method, but a function that is called by forkit() to
+  # run as a background process. It prints text for the channel to
+  # STDOUT and log entries to STDERR.
+
   ($owner, $repo) =
       $repo =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       print "The repository must be on GitHub for searching to work.\n" and
@@ -1215,12 +1255,9 @@ sub find_issues_process($$$$$$$$$$)
 
   $type = lc $type;
 
-  # TODO: Find out if there are more than 100 results and, if so, warn
-  # that the list is not complete.
-
   $labels =~ s/ //g if $labels;
   $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
-  $q = "per_page=100&state=$state";
+  $q = "per_page=".(MAX + 1)."&state=$state";
   $creator = $who if $creator && $creator =~ /^m[ey]$/i;
   $assignee = $who if $assignee && $assignee =~ /^m[ey]$/i;
   $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
@@ -1245,7 +1282,10 @@ sub find_issues_process($$$$$$$$$$)
   }
 
   $ref = decode_json($res->decoded_content);
-  $s = join(", ", map("#".$_->{number}, @$ref));
+  $n = @$ref;
+  $n = MAX if $n > MAX;
+  $s = join(", ", map("#".$_->{number}, @$ref[0..$n-1]));
+  $s .= " and more" if MAX < @$ref;
   print "Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
 }
 
@@ -1257,6 +1297,9 @@ sub find_issues($$$$$$$$)
 
   return "Sorry, I cannot access GitHub, because I am running without " .
       "an access token." if ! defined $self->{github_api_token};
+
+  $repo = $self->find_matching_repository($channel, $repo // '') or
+      return "Sorry, I don't know what repository to use.";
 
   $self->forkit(run => \&find_issues_process, channel => $channel,
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
@@ -1293,7 +1336,7 @@ sub said($$)
   $self->{linenumber}->{$channel}++;
 
   return $self->part_channel($channel), undef
-      if $addressed && $text =~ /^bye *\.?$/i;
+      if $addressed && $text =~ /^bye *\.? *$/i;
 
   return $self->add_repositories($channel, $1)
       if ($addressed &&
@@ -1310,32 +1353,32 @@ sub said($$)
 
   return $self->set_delay($channel, 0 + $1)
       if $addressed &&
-      $text =~ /^(?:set +)?delay *(?: to |=| ) *?([0-9]+) *(?:\. *)?$/i;
+      $text =~ /^(?:set +)?delay *(?: to |=| ) *?([0-9]+) *\.? *$/i;
 
   return $self->status($channel)
-      if $addressed && $text =~ /^status *(?:[?.] *)?$/i;
+      if $addressed && $text =~ /^status *[?.]? *$/i;
 
   return $self->set_suspend_all($channel, 0)
-      if $addressed && $text =~ /^on(?: *\.)?$/i;
+      if $addressed && $text =~ /^on *\.? *$/i;
 
   return $self->set_suspend_all($channel, 1)
-      if $addressed && $text =~ /^off(?: *\.)?$/i;
+      if $addressed && $text =~ /^off *\.? *$/i;
 
   return $self->set_suspend_issues($channel, 0)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true)(?: *\.)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true) *\.? *$/i;
 
   return $self->set_suspend_issues($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false)(?: *\.)?$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false) *\.? *$/i;
 
   return $self->set_suspend_names($channel, 0)
       if $addressed &&
-      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(on|yes|true)(?: *\.)?$/i;
+      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(on|yes|true) *\.? *$/i;
 
   return $self->set_suspend_names($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(off|no|false)(?: *\.)?$/i;
+      $text =~ /^(?:set +)?(?:names|persons|teams)(?: +to +| *= *| +)(off|no|false) *\.? *$/i;
 
   return $self->create_issue($channel, $1, $who)
       if ($addressed || $do_issues) && $text =~ /^issue *[:：] *(.*)$/i &&
@@ -1381,7 +1424,7 @@ sub said($$)
   return $self->find_issues($channel, $who, $2 // "open", $3 // "issues",
     $4, $5, $6 // $1, $7)
       if $addressed &&
-      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?))*(?: *\.)?$/i;
+      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?))* *\.? *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
@@ -1420,13 +1463,13 @@ sub help($$)
       "the name of a repository owner), I will print the URL to that\n" .
       "issue and try to retrieve a summary.\n" .
       "See also \"$me, help use\" for setting the default repositories.\n" .
-      "Example: \"#1\"."
+      "Example: #1"
       if $text =~ /#/;
 
   return
       "when I see \"\@abc\" (where abc is any name), I will print\n" .
       "the URL of the user or team of that name on GitHub.\n" .
-      "Example: \"\@w3c\".\n"
+      "Example: \@w3c"
       if $text =~ /@/;
 
   return
@@ -1438,7 +1481,7 @@ sub help($$)
       "none. You can give more than one repository, separated by commas\n" .
       "or spaces. Aliases: use, discussing, discuss, using, take up\n" .
       "taking up, this will be, this is.\n" .
-      "See also \"$me, help repo\". Example: \"$me, $1 w3c/rdf-star\"."
+      "See also \"$me, help repo\". Example: $me, $1 w3c/rdf-star"
       if $text =~ /\b(use|discussing|discuss|using|take +up|taking +up|this +will +be|this +is)\b/i;
 
   return
@@ -1450,7 +1493,7 @@ sub help($$)
       "You can give more than one repository. Use commas or\n" .
       "spaces to separate them. Aliases: repo, repos, repository,\n" .
       "repositories. See also \"$me, help use\".\n" .
-      "Example: \"$1: w3c/rdf-star\"."
+      "Example: $1: w3c/rdf-star"
       if $text =~ /\b(repo|repos|repository|repositories)\b/i;
 
   return
@@ -1465,7 +1508,7 @@ sub help($$)
   return
       "the command \"issue: ...\" creates a new issue in the default\n" .
       "repository on GitHub. See \"$me, help use\" for how to set\n" .
-      "the default repository. Example: \"issue: Section 1.1 is wrong\".\n"
+      "the default repository. Example: issue: Section 1.1 is wrong"
       if $text =~ /\bissue\b/i;
 
   return
@@ -1479,7 +1522,7 @@ sub help($$)
       "\"next Thursday\". See \"$me, help use\" for how to set the\n" .
       "default repository. See \"$me, help is\" for defining aliases\n" .
       "for usernames.\n" .
-      "Example: \"action john, kylie: solve #1 due in 2 weeks."
+      "Example: action john, kylie: solve #1 due in 2 weeks"
       if $text =~ /\baction\b/i;
 
   return
@@ -1494,14 +1537,14 @@ sub help($$)
       "\"$me, delay nn\", or \"$me, delay = nn\", or\n" .
       "\"$me, set delay nn\" or \"$me, set delay to nn\"\n" .
       "changes the number of lines from 15 to nn.\n" .
-      "Example: \"$me, delay 0\""
+      "Example: $me, delay 0"
       if $text =~ /\bdelay\b/i;
 
   return
       "if you say \"$me, status\" or \"$me, status?\" I will print\n" .
       "my current list of repositories, the current delay, whether I'm\n" .
       "looking up issues, and which IRC users I'm ignoring.\n" .
-      "Example: \"$me, status?\""
+      "Example: $me, status?"
       if $text =~ /\bstatus\b/i;
 
   return
@@ -1550,21 +1593,21 @@ sub help($$)
       "Typically this command serves to define an equivalence\n" .
       "between an IRC nickname and a GitHub username, so that\n" .
       "you can say \"action aaa:...\", where aaa is an IRC nick.\n" .
-      "Aliases: is, =. Example: \"$me, denis $1 \@deniak\"."
+      "Aliases: is, =. Example: $me, denis $1 \@deniak"
       if $text =~ /(\bis\b|=)/i;
 
   return
       "the command \"$me, $1 aaa\" tells me to stop\n" .
       "ignoring messages on IRC from user aaa.\n" .
       "See also \"$me, help ignore\".\n" .
-      "Example: \"$me, $1 agendabot\"."
+      "Example: $me, $1 agendabot"
       if $text =~ /\b(don't +ignore|do +not +ignore)\b/i;
 
   return
       "the command \"$me, ignore aaa\" tells me to ignore\n" .
       "messages on IRC from user aaa.\n" .
       "See also \"$me, help don't ignore\".\n" .
-      "Example: \"$me, ignore rrsagent\"."
+      "Example: $me, ignore rrsagent"
       if $text =~ /\bignore\b/i;
 
   return
@@ -1579,7 +1622,7 @@ sub help($$)
       "in repository xxx/yyy. If you omit xxx or xxx/yyy, I will find\n" .
       "the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"close #1\"."
+      "Example: close #1"
       if $text =~ /\bclose\b/i;
 
   return
@@ -1588,7 +1631,7 @@ sub help($$)
       "number nn in repository xxx/yyy. If you omit xxx or xxx/yyy,\n" .
       "I will find the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"reopen #1\"."
+      "Example: reopen #1"
       if $text =~ /\breopen\b/i;
 
   return
@@ -1597,14 +1640,14 @@ sub help($$)
       if $text =~ /\bbye\b/i;
 
   return
-      "the command \"$me, $1\" lists at most 100 most recent open issues.\n" .
+      "the command \"$me, $1\" lists at most 99 most recent open issues.\n" .
       "It can optionally be followed by \"open\", \"closed\" or \"all\",\n" .
       "optionally followed by \"issues\" or \"actions\, followed by zero\n" .
       "or more conditions: \"with labels label1, label2...\" or\n" .
       "\"for name\" or \"by name\" or \"from repo\". I will list the\n" .
       "issues or actions that match those conditions.\n" .
-      "Example: \"$1 closed actions for joe from w3c/rdf-star\".\n" .
-      "Aliases: find, look up, get, search, search for, list."
+      "Aliases: find, look up, get, search, search for, list.\n" .
+      "Example: $me, list closed actions for pchampin from w3c/rdf-star"
       if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
 
   return
@@ -1614,8 +1657,8 @@ sub help($$)
       "The colon(:) is optional. If you omit xxx or xxx/yyy, I will\n" .
       "find the repository in my list of repositories.\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
-      "Example: \"note #71: This is related to #70.\"\n" .
-      "Aliases: comment, note.\n"
+      "Aliases: comment, note.\n" .
+      "Example: note #71: This is related to #70."
       if $text =~ /\b(comment|note)\b/i;
 
   return
@@ -1749,7 +1792,7 @@ $bot->run();
 
 =head1 NAME
 
-ghurlbot - IRC bot that gives the URLs for GitHub issues & users
+ghurlbot - IRC bot to manage GitHub issues or find their URLs
 
 =head1 SYNOPSIS
 
@@ -1874,14 +1917,10 @@ standard error.
 
 =item I<rejoin-file>
 
-When the B<-r> option is used, B<ghurlbot> reads this file when
-it starts and tries to join all channels it contains. It then updates
-the file whenever it leaves or joins a channel. The file is a simple
-list of channel names, one per line.
-
-If the file is not writable, B<ghurlbot> will function normally,
-but will obviously not be able to update the file. In verbose mode
-(B<-v>) it will write a message to standard error.
+When the B<-r> option is used, B<ghurlbot> starts by trying to join
+all channels in this file. It then updates the file whenever it leaves
+or joins a channel. The file is a simple list of channel names, one
+per line.
 
 =back
 
@@ -1891,10 +1930,6 @@ The I<map-file> and I<rejoin-file> only contain channel names, not the
 names of IRC networks or IRC servers. B<ghurlbot> cannot check
 that the channel names correspond to the IRC server it was started
 with.
-
-When B<ghurlbot> is killed in the midst of updating the
-I<map-file> or I<rejoin-file>, the file may become corrupted and
-prevent the program from restarting.
 
 =head1 AUTHOR
 
