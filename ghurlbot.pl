@@ -1310,18 +1310,18 @@ sub said($$)
       if $addressed && $text =~ /^status *[?.]? *$/i;
 
   return $self->set_suspend_all($channel, 0)
-      if $addressed && $text =~ /^on: *\.? *$/i;
+      if $addressed && $text =~ /^on *\.? *$/i;
 
   return $self->set_suspend_all($channel, 1)
       if $addressed && $text =~ /^off *\.? *$/i;
 
   return $self->set_suspend_issues($channel, 0)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true): *\.? *$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(on|yes|true) *\.? *$/i;
 
   return $self->set_suspend_issues($channel, 1)
       if $addressed &&
-      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false): *\.? *$/i;
+      $text =~ /^(?:set +)?issues *(?: to |=| ) *(off|no|false) *\.? *$/i;
 
   return $self->set_suspend_names($channel, 0)
       if $addressed &&
