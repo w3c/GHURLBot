@@ -323,8 +323,8 @@
 &lt;joe&gt; action: alex to review chapter 1
 &lt;joe&gt; action: alex: review chapter 1</pre>
 
-  <p>(Only users who have write access to a repository can create
-    actions in it. See <a href="#account" >‘GitHub account’</a>.)
+  <p>Only users who have write access to a repository can create
+    actions in it. See <a href="#account" >‘GitHub account’</a>.
 
   <p>You can assign an action to several people at once by separating
     their names with commas and/or the word ‘and’. E.g.:</p>
@@ -338,9 +338,14 @@
   <p>You can only assign an action to somebody who is associated with
     that repository (an owner or a collaborator).</p>
 
-  <p>An action is in fact a special kind of issue: in addition to a
-    title, it also has a label (‘action’), a due date and a person
-    assigned to it.</p>
+  <p>You can optionally prefix the assignee with <code>@</code>:</p>
+
+  <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
+
+  <p>Instead of somebody's GitHub account name, you can use an IRC
+    nick or an alias, but only if gb knows what the corresponding
+    GitHub account is. See <a href="#aliases" >‘Mapping names to
+    GitHub accounts’</a>.</p>
 
   <p>By default, an action gets a due date in one week, but you can
     explicitly set a date:</p>
@@ -349,13 +354,6 @@
 
   <p>Many different ways of describing a date are supported, including
     things like ‘in 2 weeks’, ‘tomorrow’ and ‘next Tuesday’.</p>
-
-  <p>By default, the name must be the name of an account on GitHub,
-    but you can define <a href="#aliases" >aliases</a>, see below. You
-    can also prefix the name with <code>@</code> (in which case
-    Gb will not check if it knows an alias).
-
-  <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
 
   <h2 id=close>Closing an issue or action</h2>
 
@@ -443,9 +441,9 @@
     for</code>.</p>
 
   <p>You can search for <code>issues</code> or <code>actions</code>.
-    If you omit the word, gb will search for issues. (Note that
-    actions are a special kind of issues, so searching for issues will
-    also return actions.) You can search
+    If you omit the word, gb will search for issues. (An action is a
+    kind of issue, so searching for issues will also return actions,
+    but not the other way round.) You can search
     for <code>open</code>, <code>closed</code> or <code>all</code>
     issues. If you omit the word, gb will search for open
     issues. Thus the command</p>
@@ -514,11 +512,19 @@
   <h2 id=aliases>Mapping names to GitHub accounts</h2>
 
   <p>When you create an action for somebody, it is usually the easiest
-    to use the IRC nick name of that person. But if the IRC nick is
-    not the same as the GitHub account name of that person, GitHub
-    will assign the action to nobody.
+    to use the IRC nick name of that person. But people's nicks on IRC
+    are often not the same as their GitHub accounts.
 
-  <p>To help with that, you can define aliases with <code>=</code>
+  <p>If gb doesn't know a person's GitHub account, it will still try
+    to create the action, but GitHub may assign the action to
+    nobody.</p>
+
+  <p>Gb tries two ways to translate an IRC nick to a GitHub account:
+    It knows the GitHub account of authenticated users
+    (see <a href="#account">‘GitHub account’</a>). For other nicks, gb
+    maintains a list of aliases.</p>
+
+  <p>You can add aliases to that list with <code>=</code>
     or <code>is</code>, e.g.:
 
   <pre class=command>&lt;joe&gt; gb, Eve = eve78
@@ -531,6 +537,12 @@
   <p>The first name is the one you plan to use when creating actions,
     the second is the corresponding GitHub account name. In fact, you
     can define arbitrary aliases. They don't have to be IRC nicks.
+
+  <p>Gb remembers the aliases even when it leaves and later rejoins.
+
+  <p>Be careful with nick changes: Unlike for nicks of authenticated
+    users, gb does not try to track nick changes for aliases. So if
+    somebody's nick changes, it is up to you to renew the alias.
 
   <h2 id=invite>Inviting and dismissing the bot</h2>
 
