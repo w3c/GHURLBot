@@ -29,6 +29,8 @@
 #
 # TODO: Add a way to use other servers than github.com.
 #
+# TODO: Set the default to not expanding names ("set names = off")?
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -500,6 +502,10 @@ sub create_action_process($$$$$$$)
   my ($body, $self, $channel, $repository, $names, $text, $who) = @_;
   my (@names, @labels, $res, $content, $date, $due, $today, $login, $s);
 
+  # This is not a method, but a routine that is run as a background
+  # process by create_action(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
+
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
 
@@ -608,6 +614,10 @@ sub create_issue_process($$$$$)
 {
   my ($body, $self, $channel, $repository, $text, $who) = @_;
   my ($res, $content, $login, $s);
+
+  # This is not a method, but a routine that is run as a background
+  # process by create_issue(). Output to STDERR is meant for the log.
+  # Output to STDOUT goes to IRC.
 
   $repository =~ s/^https:\/\/github\.com\///i or
       print "Cannot create issues on $repository as it is not on github.com.\n"
@@ -974,13 +984,15 @@ sub get_issue_summary_process($$$$)
   # STDOUT and log entries to STDERR.
 
   if (!defined $self->{ua}) {
-    print "$repository/issues/$issue -> \#$issue\n";
+    print "$repository/issues/$issue -> #$issue\n";
+    print STDERR "Channel $channel, info $repository#$issue\n";
     return;
   }
 
   ($owner, $repo) =
       $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
-      print "$repository/issues/$issue -> \#$issue\n" and
+      print "$repository/issues/$issue -> #$issue\n" and
+      print STDERR "Channel $channel, info $repository/issues/$issue\n" and
       return;
 
   $res = $self->{ua}->get(
@@ -997,7 +1009,7 @@ sub get_issue_summary_process($$$$)
     return;
   } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
     print STDERR "  ", $res->decoded_content, "\n";
-    print "$repository/issues/$issue -> \#$issue\n";
+    print "$repository/issues/$issue -> #$issue\n";
     return;
   }
 
@@ -1032,13 +1044,13 @@ sub maybe_expand_references($$$$)
 
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
-  $do_issues = !defined $self->{suspend_issues}->{$channel};
-  $do_names = !defined $self->{suspend_names}->{$channel};
+  $do_issues = !$self->{suspend_issues}->{$channel};
+  $do_names = !$self->{suspend_names}->{$channel};
   $response = '';
 
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
-  while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
+  while ($text =~ /(?:^|[^\w@#])\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
@@ -1055,7 +1067,7 @@ sub maybe_expand_references($$$$)
 		     arguments => [$self, $channel, $repository, $issue]});
       $self->{history}->{$channel}->{$ref} = $linenr;
 
-    } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
+    } elsif ($ref =~ /^@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
       $self->log("Channel $channel, name https://github.com/$name");
       $response .= "https://github.com/$name -> \@$name\n";
@@ -1142,9 +1154,9 @@ sub set_suspend_names($$$)
 
   # Do nothing if already set the right way.
   return 'names were already off.'
-      if defined $self->{suspend_names}->{$channel} && $on;
+      if $on && $self->{suspend_names}->{$channel};
   return 'names were already on.'
-      if !defined $self->{suspend_names}->{$channel} && !$on;
+      if !$on && !$self->{suspend_names}->{$channel};
 
   # Add the channel to the set or delete it from the set, and update mapfile.
   if ($on) {$self->{suspend_names}->{$channel} = 1}
