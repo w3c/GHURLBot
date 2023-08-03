@@ -24,6 +24,8 @@
 #
 # TODO: Add a way to use other servers than github.com.
 #
+# TODO: Set the default to not expanding names ("set names = off")?
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -916,7 +918,8 @@ sub get_issue_summary_process($$$$$)
 
   ($owner, $repo) =
       $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
-      print "$repository/issues/$issue -> \#$issue\n" and
+      print "$repository/issues/$issue -> #$issue\n" and
+      print STDERR "Channel $channel, info $repository/issues/$issue\n" and
       return;
 
   $res = $self->{ua}->get(
@@ -934,7 +937,7 @@ sub get_issue_summary_process($$$$$)
     return;
   } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
     print STDERR "  ", $res->decoded_content, "\n";
-    print "$repository/issues/$issue -> \#$issue\n";
+    print "$repository/issues/$issue -> #$issue\n";
     return;
   }
 
@@ -970,14 +973,14 @@ sub maybe_expand_references($$$$$)
 
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
-  $do_issues = !defined $self->{suspend_issues}->{$channel};
-  $do_names = !defined $self->{suspend_names}->{$channel};
+  $do_issues = !$self->{suspend_issues}->{$channel};
+  $do_names = !$self->{suspend_names}->{$channel};
   $do_lookups = $self->accesskey($who) ne '';
   $response = '';
 
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
-  while ($text =~ /(?:^|\W)\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
+  while ($text =~ /(?:^|[^\w@#])\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
@@ -994,11 +997,11 @@ sub maybe_expand_references($$$$$)
 	$self->forkit({run => \&get_issue_summary_process, channel => $channel,
 		       arguments => [$self,$channel,$repository,$issue,$who]});
       } else {
-	$response .= "$repository/issues/$issue -> \#$issue\n";
+	$response .= "$repository/issues/$issue -> #$issue\n";
       }
       $self->{history}->{$channel}->{$ref} = $linenr;
 
-    } elsif ($ref =~ /@/		# It's a reference to a GitHub user name
+    } elsif ($ref =~ /^@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
       $self->log("Channel $channel, name https://github.com/$name");
       $response .= "https://github.com/$name -> \@$name\n";
@@ -1085,9 +1088,9 @@ sub set_suspend_names($$$)
 
   # Do nothing if already set the right way.
   return 'names were already off.'
-      if defined $self->{suspend_names}->{$channel} && $on;
+      if $on && $self->{suspend_names}->{$channel};
   return 'names were already on.'
-      if !defined $self->{suspend_names}->{$channel} && !$on;
+      if !$on && !$self->{suspend_names}->{$channel};
 
   # Add the channel to the set or delete it from the set, and update mapfile.
   if ($on) {$self->{suspend_names}->{$channel} = 1}
