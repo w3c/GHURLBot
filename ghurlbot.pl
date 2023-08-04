@@ -93,16 +93,20 @@ sub init($)
   $self->{github_names} = {}; # Maps from a nick to a GitHub login
 
   # Create a user agent to retrieve data from GitHub.
-  $self->{ua} = LWP::UserAgent->new;
-  $self->{ua}->agent(blessed($self) . '/' . VERSION);
-  $self->{ua}->timeout(10);
-  $self->{ua}->conn_cache(LWP::ConnCache->new);
-  $self->{ua}->env_proxy;
+  $self->{ua} = LWP::UserAgent->new(agent => blessed($self) . '/' . VERSION,
+    timeout => 10, keep_alive => 1, env_proxy => 1);
   $self->{ua}->default_header('X-GitHub-Api-Version', '2022-11-28');
+  $self->{ua}->default_header('Accept', 'application/json');
 
   $errmsg = $self->read_rejoin_list() and die "$errmsg\n";
   $errmsg = $self->read_mapfile() and die "$errmsg\n";
 
+  if ($self->{client_secret_file}) {
+    open my $fh, "<", $self->{client_secret_file} or
+	die "$self->{client_secret_file}: $!\n";
+    $self->{client_secret} = <$fh>;
+    chomp $self->{client_secret};
+  }
   $self->log("Connecting...");
   return 1;
 }
@@ -528,11 +532,12 @@ sub create_action_process($$$$$$$)
     my $delta = new Date::Manip::Delta;
     $delta->parse("+1 year");
     $date = $date->calc($delta) until $date->cmp($today) >= 0;
-    print "Assumed the due date is in ", $date->printf("%Y"), "\n";
+    print "say Assumed the due date is in ", $date->printf("%Y"), "\n";
   }
 
   $due = $date->printf("Due: %Y-%m-%d (%A %e %B)");
 
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
@@ -543,36 +548,36 @@ sub create_action_process($$$$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot create action. Forbidden.\n";
+    print "say Cannot create action. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot create action. You have insufficient (or expired) authorization.\n";
+    print "say Cannot create action. You have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create action. Please, check that you have write access to $repository\n";
+    print "say Cannot create action. Please, check that you have write access to $repository\n";
   } elsif ($res->code == 410) {
-    print "Cannot create action. The repository $repository is gone.\n";
+    print "say Cannot create action. The repository $repository is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot create action. Validation failed. Maybe ",
+    print "say Cannot create action. Validation failed. Maybe ",
 	scalar @names > 1 ? "one of the names" : $names[0],
 	" is not a valid user for $repository?\n";
   } elsif ($res->code == 503) {
-    print "Cannot create action. Service unavailable.\n";
+    print "say Cannot create action. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot create action. Error ", $res->code, "\n";
+    print "say Cannot create action. Error ", $res->code, "\n";
   } else {
     # Issues created. Check that label and assignees were also added.
     $content = decode_json($res->decoded_content);
     my %n; $n{fc $_->{login}} = 1 foreach @{$content->{assignees}};
     @names = grep !exists $n{fc $_}, @names; # Remove names that were assigned
     if (! @{$content->{labels}}) {
-      print "I created -> issue #$content->{number} $content->{html_url}\n",
-	  "but I could not add the \"action\" label.\n",
-	  "That probably means I don't have push permission on $repository.\n";
+      print "say I created -> issue #$content->{number} $content->{html_url}\n",
+	  "say but I could not add the \"action\" label.\n",
+	  "say That probably means I don't have push permission on $repository.\n";
     } elsif (@names) {		# Some names were not assigned
-      print "I created -> action #$content->{number} $content->{html_url}\n",
-	  "but I could not assign it to ", join(", ", @names), "\n",
-	  "They probably aren't collaborators on $repository.\n";
+      print "say I created -> action #$content->{number} $content->{html_url}\n",
+	  "say but I could not assign it to ", join(", ", @names), "\n",
+	  "say They probably aren't collaborators on $repository.\n";
     } else {
-      print "Created -> action #$content->{number} $content->{html_url}\n";
+      print "say Created -> action #$content->{number} $content->{html_url}\n";
     }
   }
 }
@@ -601,8 +606,9 @@ sub create_action($$$$)
       "Please, try again later.";
 
   $self->forkit(
-    {run => \&create_action_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $names, $text, $who]});
+    run => \&create_action_process, channel => $channel,
+    handler => 'handle_process_output',
+    arguments => [$self, $channel, $repository, $names, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -618,6 +624,7 @@ sub create_issue_process($$$$$)
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
 
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
@@ -627,22 +634,22 @@ sub create_issue_process($$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot create issue. Forbidden.\n";
+    print "say Cannot create issue. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot create issue. You have insufficient (or expired) authorization.\n";
+    print "say Cannot create issue. You have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create issue.  Please, check that you have write access to $repository.\n";
+    print "say Cannot create issue.  Please, check that you have write access to $repository.\n";
   } elsif ($res->code == 410) {
-    print "Cannot create issue. The repository $repository is gone.\n";
+    print "say Cannot create issue. The repository $repository is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot create issue. Validation failed.\n";
+    print "say Cannot create issue. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot create issue. Service unavailable.\n";
+    print "say Cannot create issue. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot create issue. Error ", $res->code, "\n";
+    print "say Cannot create issue. Error ", $res->code, "\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Created -> issue #$content->{number} $content->{html_url}",
+    print "say Created -> issue #$content->{number} $content->{html_url}",
 	" $content->{title}\n";
   }
 }
@@ -671,8 +678,9 @@ sub create_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(
-    {run => \&create_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+    run => \&create_issue_process, channel => $channel,
+    handler => 'handle_process_output',
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -686,11 +694,12 @@ sub close_issue_process($$$$$$)
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
-  # Output to STDOUT goes to IRC.
+  # Output to STDOUT is handled by handle_process_output().
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
   # Add a comment saying who closed the issue and then close it.
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
@@ -700,25 +709,25 @@ sub close_issue_process($$$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot close issue $text. Forbidden.\n";
+    print "say Cannot close issue $text. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot close issue. I have insufficient (or expired) authorization.\n";
+    print "say Cannot close issue. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot close issue $text. Issue not found.\n";
+    print "say Cannot close issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot close issue $text. Issue is gone.\n";
+    print "say Cannot close issue $text. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot close issue $text. Validation failed.\n";
+    print "say Cannot close issue $text. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot close issue $text. Service unavailable.\n";
+    print "say Cannot close issue $text. Service unavailable.\n";
   } elsif ($res->code != 200) {
-    print "Cannot close issue $text. Error ".$res->code."\n";
+    print "say Cannot close issue $text. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print "Closed -> action #$content->{number} $content->{html_url}\n";
+      print "say Closed -> action #$content->{number} $content->{html_url}\n";
     } else {
-      print "Closed -> issue #$content->{number} $content->{html_url}\n";
+      print "say Closed -> issue #$content->{number} $content->{html_url}\n";
     }
   }
 }
@@ -745,8 +754,9 @@ sub close_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(
-    {run => \&close_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+    run => \&close_issue_process, channel => $channel,
+    handler => 'handle_process_output',
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -760,10 +770,11 @@ sub reopen_issue_process($$$$$)
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
-  # Output to STDOUT goes to IRC.
+  # Output to STDOUT is handled by handle_process_output().
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
@@ -773,19 +784,19 @@ sub reopen_issue_process($$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot reopen issue $text. Forbidden.\n";
+    print "say Cannot reopen issue $text. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot reopen issue. Insufficient or expired authorization.\n";
+    print "say Cannot reopen issue. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot reopen issue $text. Issue not found.\n";
+    print "say Cannot reopen issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot reopen issue $text. Issue is gone.\n";
+    print "say Cannot reopen issue $text. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot reopen issue $text. Validation failed.\n";
+    print "say Cannot reopen issue $text. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot reopen issue $text. Service unavailable.\n";
+    print "say Cannot reopen issue $text. Service unavailable.\n";
   } elsif ($res->code != 200) {
-    print "Cannot reopen issue $text. Error ".$res->code."\n";
+    print "say Cannot reopen issue $text. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
@@ -797,12 +808,12 @@ sub reopen_issue_process($$$$$)
 	  /xsi) {
 	$comment = " due " . ($1 // $2 // $3);
       }
-      print "Reopened -> action #$content->{number} $content->{html_url} ",
+      print "say Reopened -> action #$content->{number} $content->{html_url} ",
 	  "$content->{title} (on ",
 	  join(', ', map($_->{login}, @{$content->{assignees}})),
 	  ")$comment\n";
     } else {
-      print "Reopened -> issue #$content->{number} $content->{html_url} ",
+      print "say Reopened -> issue #$content->{number} $content->{html_url} ",
 	  "$content->{title}\n";
     }
   }
@@ -830,8 +841,9 @@ sub reopen_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(
-    {run => \&reopen_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+    run => \&reopen_issue_process, channel => $channel,
+    handler => 'handle_process_output',
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -845,10 +857,11 @@ sub comment_on_issue_process($$$$$$$)
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
-  # Output to STDOUT goes to IRC.
+  # Output to STDOUT is handled by handle_process_output().
 
   ($issuenumber) = $issue =~ /#(.*)/; # Just the number
 
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
@@ -858,22 +871,22 @@ sub comment_on_issue_process($$$$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot add a comment to issue $issue. Forbidden.\n";
+    print "say Cannot add a comment to issue $issue. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "Cannot add a comment. Insufficient or expired authorization.\n";
+    print "say Cannot add a comment. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot add a comment to issue $issue. Issue not found.\n";
+    print "say Cannot add a comment to issue $issue. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot add a comment to issue $issue. Issue is gone.\n";
+    print "say Cannot add a comment to issue $issue. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot add a comment to issue $issue. Validation failed.\n";
+    print "say Cannot add a comment to issue $issue. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot add a comment to issue $issue. Service unavailable.\n";
+    print "say Cannot add a comment to issue $issue. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot add a comment to issue $issue. Error ".$res->code."\n";
+    print "say Cannot add a comment to issue $issue. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
-    print "Added -> comment $content->{html_url}\n"
+    print "say Added -> comment $content->{html_url}\n"
   }
 }
 
@@ -899,8 +912,9 @@ sub comment_on_issue($$$$$)
       "Please, try again later.";
 
   $self->forkit(
-    {run => \&comment_on_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $issue, $comment, $who]});
+    run => \&comment_on_issue_process, channel => $channel,
+    handler => 'handle_process_output',
+    arguments => [$self, $channel, $repository, $issue, $comment, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -914,30 +928,31 @@ sub get_issue_summary_process($$$$$)
 
   # This is not a method, but a function that is called by forkit() to
   # run as a background process. It prints text for the channel to
-  # STDOUT and log entries to STDERR.
+  # STDOUT (which is handled by handle_process_output()) and log
+  # entries to STDERR.
 
   ($owner, $repo) =
       $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
-      print "$repository/issues/$issue -> #$issue\n" and
+      print "say $repository/issues/$issue -> #$issue\n" and
       print STDERR "Channel $channel, info $repository/issues/$issue\n" and
       return;
 
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->get(
     "https://api.github.com/repos/$owner/$repo/issues/$issue",
-    Authorization => 'Bearer ' . $self->accesskey($who),
-    Accept => 'application/json');
+    Authorization => 'Bearer ' . $self->accesskey($who));
 
   print STDERR "Channel $channel, info $repository#$issue -> ",$res->code,"\n";
 
   if ($res->code == 404) {
-    print "$repository/issues/$issue -> Issue $issue [not found]\n";
+    print "say $repository/issues/$issue -> Issue $issue [not found]\n";
     return;
   } elsif ($res->code == 410) {
-    print "$repository/issues/$issue -> Issue $issue [gone]\n";
+    print "say $repository/issues/$issue -> Issue $issue [gone]\n";
     return;
   } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
     print STDERR "  ", $res->decoded_content, "\n";
-    print "$repository/issues/$issue -> #$issue\n";
+    print "say $repository/issues/$issue -> \#$issue\n";
     return;
   }
 
@@ -951,11 +966,11 @@ sub get_issue_summary_process($$$$$)
 	/xsi) {
       $comment = " due " . ($1 // $2 // $3);
     }
-    print "$repository/issues/$issue -> Action $issue ",
+    print "say $repository/issues/$issue -> Action $issue ",
 	($ref->{state} eq 'closed' ? '[closed] ' : ''),	"$ref->{title} (on ",
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
   } else {
-    print "$repository/issues/$issue -> ",
+    print "say $repository/issues/$issue -> ",
 	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),
 	($ref->{pull_request} ? 'Pull Request' : 'Issue'), " $issue ",
 	"$ref->{title} (by $ref->{user}->{login})",
@@ -994,8 +1009,10 @@ sub maybe_expand_references($$$$$)
       };
       # $self->log("Channel $channel $repository/issues/$issue");
       if ($do_lookups) {
-	$self->forkit({run => \&get_issue_summary_process, channel => $channel,
-		       arguments => [$self,$channel,$repository,$issue,$who]});
+	$self->forkit(
+	  run => \&get_issue_summary_process, channel => $channel,
+	  handler => 'handle_process_output',
+	  arguments => [$self,$channel,$repository,$issue,$who]);
       } else {
 	$response .= "$repository/issues/$issue -> #$issue\n";
       }
@@ -1192,11 +1209,12 @@ sub find_issues_process($$$$$$$$$$)
 
   # This is not a method, but a function that is called by forkit() to
   # run as a background process. It prints text for the channel to
-  # STDOUT and log entries to STDERR.
+  # STDOUT handled by handle_process_output()) and log entries to
+  # STDERR.
 
   ($owner, $repo) =
       $repo =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
-      print "The repository must be on GitHub for searching to work.\n" and
+      print "say The repository must be on GitHub for searching to work.\n" and
       return;
 
   $type = lc $type;
@@ -1209,22 +1227,23 @@ sub find_issues_process($$$$$$$$$$)
   $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
   $q .= "&creator=" . esc($self->name_to_login($creator)) if $creator;
   $q .= "&labels=" . esc($labels) if $labels;
+
+  $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->get(
     "https://api.github.com/repos/$owner/$repo/issues?$q",
-    Authorization => 'Bearer ' . $self->accesskey($who),
-    Accept => 'application/json');
+    Authorization => 'Bearer ' . $self->accesskey($who));
 
   print STDERR "Channel $channel, list $q in $owner/$repo -> ",$res->code,"\n";
 
   if ($res->code == 404) {
-    print "Repository \"$owner/$repo\" not found\n";
+    print "say Repository \"$owner/$repo\" not found\n";
     return;
   } elsif ($res->code == 422) {
-    print "Validation failed\n";
+    print "say Validation failed\n";
     return;
   } elsif ($res->code != 200) {
     print STDERR "  ", $res->decoded_content, "\n";
-    print "Error ", $res->code, "\n";
+    print "say Error ", $res->code, "\n";
     return;
   }
 
@@ -1233,7 +1252,7 @@ sub find_issues_process($$$$$$$$$$)
   $n = MAX if $n > MAX;
   $s = join(", ", map("#".$_->{number}, @$ref[0..$n-1]));
   $s .= " and more" if MAX < @$ref;
-  print "Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
+  print "say Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
 }
 
 
@@ -1249,7 +1268,9 @@ sub find_issues($$$$$$$$)
   $repo = $self->find_matching_repository($channel, $repo // '') or
       return "Sorry, I don't know what repository to use.";
 
-  $self->forkit(run => \&find_issues_process, channel => $channel,
+  $self->forkit(
+    run => \&find_issues_process, channel => $channel,
+    handler => 'handle_process_output',
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
       $assignee, $repo]);
 }
@@ -1638,6 +1659,10 @@ sub chanpart($)
   my $who = $info->{who};
   my $channel = $info->{channel};
 
+  # TODO: Also remove deleted keys on GitHub (via "DELETE
+  # /applications/CLIENT_ID/token"), rather than rely on them expiring
+  # in 8 hours.
+
   # If we have a GitHub accesskey for this nick, but the nick is now
   # on no channel that we are on, we have to delete the key, because
   # we cannot follow nick changes. (We use the fact that
@@ -1680,14 +1705,14 @@ sub nick_change($$)
 }
 
 
-# handle_ask_user_process_output -- handle output from ask_user_to_login_process
-sub handle_ask_user_process_output
+# handle_process_output -- handle output background processes
+sub handle_process_output
 {
   my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
 
-  # This is not a method, but a POE event handler. It is called when
-  # ask_user_to_login_process() prints a line to STDOUT. $body has the
-  # contents of that line.
+  # This is not a method, but a POE event handler. It is called when a
+  # background process prints a line to STDOUT. $body has the contents
+  # of that line.
 
   # If the text starts with "say", just write it to IRC (minus the
   # "say"). If it starts with "code", it contains a nick and an access
@@ -1699,12 +1724,10 @@ sub handle_ask_user_process_output
     $args->{body} = $body;
     $self->say($args);
   } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
-    $self->accesskey($1, $2, $3); # Store token $2 and login $3 for nick $1
+    $self->accesskey($1, $2, $3, $4, $5, $6); # Store info for nick $1
     $self->log("Got an access token for $1 (= \@$3)");
-    # TODO: Also store the expires_in, refresh_token and
-    # refresh_token_expires_in parameters.
   } else {
-    die "Bug: unrecognized output from ask_user_to_login_process(): $body\n";
+    die "Bug: unrecognized output from a background process(): $body\n";
   }
   return;
 }
@@ -1723,7 +1746,7 @@ sub ask_user_to_login_process($$$)
   #
   # It communicates with GitHub and produces three kinds of output:
   # text to send to a user on IRC (printed on STDOUT as a line that
-  # starts with "say"), the result of the interaction with GitHun
+  # starts with "say"), the result of the interaction with GitHub
   # (printed as a line on STDOUT that starts with "code"), and text
   # for the log (printed as a line of text on STDERR).
 
@@ -1733,8 +1756,7 @@ sub ask_user_to_login_process($$$)
   # First get a device code and user code from GitHub.
   print STDERR "Getting a device code from GitHub for $who\n";
   $res = $self->{ua}->post("https://github.com/login/device/code",
-    { client_id => GITHUB_CLIENT_ID },
-    Accept => 'application/json');
+    { client_id => GITHUB_CLIENT_ID });
 
   if ($res->code != 200) {
     print STDERR "Failed to get a device code code for $who: $res->code\n";
@@ -1745,13 +1767,13 @@ sub ask_user_to_login_process($$$)
   $device_code = $content->{device_code};
   $user_code = $content->{user_code};
   $verification_uri = $content->{verification_uri};
-  # $expires_in = $content->{expires_in};
+  # $expires_in = $content->{expires_in}; # Expiry of user code not used
   $interval = $content->{interval};
 
   # Prompt the user to log in to GitHub and enter the user code.
   print "say You need to authorize me to act as your agent on GitHub.\n";
-  print "say To do so, open $verification_uri in a browser.\n";
-  print "say (GitHub may ask you to sign in.)\n";
+  print "say To do so, open $verification_uri in a browser. ",
+      "(GitHub may ask you to sign in.)\n";
   print "say Then enter this code: $user_code\n";
 
   # Poll GitHub every $interval seconds until GitHub gives us the
@@ -1761,8 +1783,7 @@ sub ask_user_to_login_process($$$)
 
     $res = $self->{ua}->post("https://github.com/login/oauth/access_token",
       { client_id => GITHUB_CLIENT_ID, device_code => $device_code,
-	grant_type => "urn:ietf:params:oauth:grant-type:device_code" },
-      Accept => 'application/json');
+	grant_type => "urn:ietf:params:oauth:grant-type:device_code" });
 
     if ($res->code != 200) {
       print STDERR "Error polling for an access token for $who: $res->code\n";
@@ -1798,7 +1819,6 @@ sub ask_user_to_login_process($$$)
 
   # Now get the login of the user through another API.
   $res = $self->{ua}->get("https://api.github.com/user",
-			  Accept => 'application/json',
 			  Authorization => 'Bearer ' . $access_token);
   if ($res->code != 200) {
     print STDERR "Error getting GitHub user info for $who: $res->code\n";
@@ -1808,8 +1828,13 @@ sub ask_user_to_login_process($$$)
   $content = decode_json($res->decoded_content);
 
   # Return all info through the output handler.
-  printf "code %s\t%s\t%s\t%s\t%s\t%s\n", $who, $access_token,
+  printf "code %s\t%s\t%s\t%d\t%s\t%d\n", $who, $access_token,
       $content->{login}, $expires_in, $refresh_token, $refresh_token_expires_in;
+
+  # Tell the user how to revoke authorization, in case they want to.
+  print "say You can see or revoke the authorization here: ",
+      "https://github.com/settings/connections/applications/",
+      GITHUB_CLIENT_ID, "\n";
 }
 
 
@@ -1819,8 +1844,8 @@ sub ask_user_to_login($$)
   my ($self, $who) = @_;
 
   $self->forkit(
-    {run => \&ask_user_to_login_process, who => $who, channel => 'msg',
-     handler => 'handle_ask_user_process_output', arguments => [$self, $who]});
+    run => \&ask_user_to_login_process, who => $who, channel => 'msg',
+    handler => 'handle_process_output', arguments => [$self, $who]);
 
   return "Sorry, I don't have GitHub access codes for you (anymore?).\n" .
       "I'll send you instructions in a private message.";
@@ -1836,8 +1861,8 @@ sub authenticate_nick($$$)
       if $self->accesskey($who);
 
   $self->forkit(
-    {run => \&ask_user_to_login_process, who => $who, channel => 'msg',
-     handler => 'handle_ask_user_process_output', arguments => [$self, $who]});
+    run => \&ask_user_to_login_process, who => $who, channel => 'msg',
+    handler => 'handle_process_output', arguments => [$self, $who]);
 
   return if $channel eq "msg";
   return "I'll send you instructions in a private message.";
@@ -1854,23 +1879,97 @@ sub deauthenticate_nick($$)
 }
 
 
+# maybe_refresh_accesskey -- refresh an access token if it is close to expiry
+sub maybe_refresh_accesskey($$)
+{
+  my ($self, $who) = @_;
+  my ($res, $access_token, $login, $expires, $refresh_token,
+    $refresh_token_expires, $content);
+
+  # This routine is always called from a background process. It cannot
+  # change values in $self, but must print to STDOUT, so that
+  # handle_process_output() can put them in $self.
+
+  # If the access_token for $who is close to expiry, use the client
+  # secret to get a new one. See
+  # https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens
+
+  # If we were started without a client_secret, there is nothing we can do.
+  return if !$self->{client_secret};
+
+  # Retrieve the refresh token for $who.
+  ($access_token, $login, $expires, $refresh_token, $refresh_token_expires) =
+      $self->accesskey($who);
+
+  # If there is no token for $who, something strange is going on.
+  $access_token ne '' or
+      print STDERR "Access token for $who disappeared??\n" and
+      return;
+
+  # If the current token still has more than a minute, do nothing.
+  return if $expires > time + 60;
+
+  # If the refresh token has (nearly) expired, it's too late to try a refresh.
+  # return if $refresh_token_expires < time + 30;
+
+  # Ask for a new token.
+  $res = $self->{ua}->post(
+    "https://github.com/login/oauth/access_token",
+    { client_id	=> GITHUB_CLIENT_ID, client_secret => $self->{client_secret},
+      grant_type => 'refresh_token', refresh_token => $refresh_token });
+
+  if ($res->code >= 500) {
+    # Service unavailable? Log it, but do not delete the token yet.
+    print STDERR "Error refreshing access token for $who -> $res->code\n";
+  } elsif ($res->code != 200) {
+    # Refresh token has expired or something else is not valid. Delete
+    # the token, both in the parent process and in this
+    # process.
+    print STDERR "Error refreshing access token for $who -> $res->code\n";
+    printf "code %s\t%s\t%s\t%s\t%s\t%s\n", $who, '', '', '', '', '';
+    $self->accesskey($who, '');
+  } else {
+    # Set the access token both in the parent process and in this process.
+    $content = decode_json($res->decoded_content);
+    print STDERR "Refreshed access token for $who\n";
+    printf "code %s\t%s\t%s\t%d\t%s\t%d\n", $who, $content->{access_token},
+	$login, $content->{expires_in}, $content->{refresh_token},
+	$content->{refresh_token_expires_in};
+    $self->accesskey($who,$content->{access_token},
+	$login, $content->{expires_in}, $content->{refresh_token},
+	$content->{refresh_token_expires_in});
+  }
+}
+
+
 # accesskey -- get or set the GitHub accesskey for a nick, '' if undefined
 sub accesskey($$;@)
 {
-  my $self = shift;
-  my $who = shift;
+  my ($self, $who, $access_token, $login, $expires_in, $refresh_token,
+    $refresh_token_expires_in) = @_;
 
   # Set the new accesskey if one was given. Or delete it if the key is ''.
-  if (@_) {
-    $self->{accesskeys}->{$who}->{access_token} = shift;
-    $self->{accesskeys}->{$who}->{login} = shift;
-    delete $self->{accesskeys}->{$who} if
-	$self->{accesskeys}->{$who}->{access_token} eq '';
+  if (defined $access_token && $access_token eq '') {
+    delete $self->{accesskeys}->{$who};
+  } elsif (defined $access_token) {
+    $self->{accesskeys}->{$who}->{access_token} = $access_token;
+    $self->{accesskeys}->{$who}->{login} = $login;
+    $self->{accesskeys}->{$who}->{expires} = time + $expires_in;
+    $self->{accesskeys}->{$who}->{refresh_token} = $refresh_token;
+    $self->{accesskeys}->{$who}->{refresh_token_expires} =
+	time + $refresh_token_expires_in;
   }
 
+  # If refresh_token expired or expires in the next minute, delete the entry.
+  delete $self->{accesskeys}->{$who} if
+      ($self->{accesskeys}->{$who}->{refresh_token_expires} // 0) < time + 60;
+
   # Return the current info for nick $who, or just the accesskey.
-  return ($self->{accesskey}->{$who}->{access_token} // '',
-	  $self->{accesskey}->{$who}->{login}) if wantarray;
+  return ($self->{accesskeys}->{$who}->{access_token} // '',
+    $self->{accesskeys}->{$who}->{login},
+    $self->{accesskeys}->{$who}->{expires},
+    $self->{accesskeys}->{$who}->{refresh_token},
+    $self->{accesskeys}->{$who}->{refresh_token_expires}) if wantarray;
   return $self->{accesskeys}->{$who}->{access_token} // '';
 }
 
@@ -1927,7 +2026,7 @@ sub read_netrc($;$)
 my (%opts, $ssl, $proto, $user, $password, $host, $port, $channel);
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
-getopts('m:n:N:r:v', \%opts) or die "Try --help\n";
+getopts('m:n:N:r:s:v', \%opts) or die "Try --help\n";
 die "Usage: $0 [options] [--help] irc[s]://server...\n" if $#ARGV != 0;
 
 # The single argument must be an IRC-URL.
@@ -1977,6 +2076,7 @@ my $bot = GHURLBot->new(
   channels => (defined $channel ? [$channel] : []),
   rejoinfile => $opts{'r'},
   mapfile => $opts{'m'} // 'ghurlbot.map',
+  client_secret_file => $opts{'s'},
   verbose => defined $opts{'v'});
 
 $bot->run();
@@ -1992,7 +2092,7 @@ ghurlbot - IRC bot to manage GitHub issues or find their URLs
 =head1 SYNOPSIS
 
 ghurlbot [-n I<nick>] [-N I<name>] [-m I<map-file>]
-[-r I<rejoin-file>] [-v] I<URL>
+[-r I<rejoin-file>] [-s I<client-secret-file] [-v] I<URL>
 
 =head1 DESCRIPTION
 
@@ -2075,6 +2175,18 @@ rejoin them when it is restarted. By default it does not remember the
 channels, but when the B<-r> option is given, it reads a list of
 channels from I<rejoin-file> when it starts and tries to join them,
 and it updates that file whenever it joins or leaves a channel.
+
+=item B<-s> I<client-secret-file>
+
+A file containing the bot's client secret. When a user authorizes
+B<ghurlbot> to manage issues in his name, the bot gets an access token
+from GitHub that is valid for 8 hours. (The bot will delete it earlier
+if the user leaves IRC.) A client secret allows the bot to refresh the
+token for an additional 8 hours every time it expires.
+
+Only the person who registered the bot as an app on GitHub can
+generate a client secret for it (via Settings -> Developer Settings ->
+edit).
 
 =item B<-v>
 
