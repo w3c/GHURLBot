@@ -507,7 +507,7 @@ sub create_action_process($$$$$$$)
 
   # This is not a method, but a routine that is run as a background
   # process by create_action(). Output to STDERR is meant for the log.
-  # Output to STDOUT goes to IRC.
+  # Output to STDOUT is handled by handle_process_output().
 
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
@@ -539,8 +539,8 @@ sub create_action_process($$$$$$$)
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues",
     'Authorization' => 'Bearer ' . $self->accesskey($who),
-    'Content' => encode_json({title => $text, assignees => \@names,
-			      body => "$due", labels => ['action']}));
+    Content => encode_json({title => $text, assignees => \@names,
+			    body => "$due", labels => ['action']}));
 
   print STDERR "Channel $channel, new action \"$text\" in $repository -> ",
       $res->code, "\n";
@@ -603,8 +603,7 @@ sub create_action($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
       "Please, try again later.";
 
-  $self->forkit(
-    run => \&create_action_process, channel => $channel,
+  $self->forkit(run => \&create_action_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $repository, $names, $text, $who]);
 
@@ -620,7 +619,7 @@ sub create_issue_process($$$$$)
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
-  # Output to STDOUT goes to IRC.
+  # Output to STDOUT is handled by handle_process_output().
 
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
@@ -675,8 +674,7 @@ sub create_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    run => \&create_issue_process, channel => $channel,
+  $self->forkit(run => \&create_issue_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $repository, $text, $who]);
 
@@ -751,8 +749,7 @@ sub close_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    run => \&close_issue_process, channel => $channel,
+  $self->forkit(run => \&close_issue_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $repository, $text, $who]);
 
@@ -775,8 +772,8 @@ sub reopen_issue_process($$$$$)
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->patch(
     "https://api.github.com/repos/$repository/issues/$issuenumber",
-    'Authorization' => 'Bearer ' . $self->accesskey($who),
-    'Content' => encode_json({state => 'open'}));
+    Authorization => 'Bearer ' . $self->accesskey($who),
+    Content => encode_json({state => 'open'}));
 
   print STDERR "Channel $channel, reopen $repository#$issuenumber -> ",
       $res->code, "\n";
@@ -838,8 +835,7 @@ sub reopen_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    run => \&reopen_issue_process, channel => $channel,
+  $self->forkit(run => \&reopen_issue_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $repository, $text, $who]);
 
@@ -862,8 +858,8 @@ sub comment_on_issue_process($$$$$$$)
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
     "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
-    'Authorization' => 'Bearer ' . $self->accesskey($who),
-    'Content' => encode_json({body => $comment}));
+    Authorization => 'Bearer ' . $self->accesskey($who),
+    Content => encode_json({body => $comment}));
 
   print STDERR "Channel $channel, add comment to $repository#$issuenumber -> ",
       $res->code, "\n";
@@ -909,8 +905,7 @@ sub comment_on_issue($$$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    run => \&comment_on_issue_process, channel => $channel,
+  $self->forkit(run => \&comment_on_issue_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $repository, $issue, $comment, $who]);
 
@@ -1006,8 +1001,7 @@ sub maybe_expand_references($$$$$)
       };
       # $self->log("Channel $channel $repository/issues/$issue");
       if ($do_lookups) {
-	$self->forkit(
-	  run => \&get_issue_summary_process, channel => $channel,
+	$self->forkit(run => \&get_issue_summary_process, channel => $channel,
 	  handler => 'handle_process_output',
 	  arguments => [$self,$channel,$repository,$issue,$who]);
       } else {
@@ -1206,7 +1200,7 @@ sub find_issues_process($$$$$$$$$$)
 
   # This is not a method, but a function that is called by forkit() to
   # run as a background process. It prints text for the channel to
-  # STDOUT handled by handle_process_output()) and log entries to
+  # STDOUT (handled by handle_process_output()) and log entries to
   # STDERR.
 
   ($owner, $repo) =
@@ -1265,8 +1259,7 @@ sub find_issues($$$$$$$$)
   $repo = $self->find_matching_repository($channel, $repo // '') or
       return "Sorry, I don't know what repository to use.";
 
-  $self->forkit(
-    run => \&find_issues_process, channel => $channel,
+  $self->forkit(run => \&find_issues_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
       $assignee, $repo]);
@@ -1840,9 +1833,9 @@ sub ask_user_to_login($$)
 {
   my ($self, $who) = @_;
 
-  $self->forkit(
-    run => \&ask_user_to_login_process, who => $who, channel => 'msg',
-    handler => 'handle_process_output', arguments => [$self, $who]);
+  $self->forkit(run => \&ask_user_to_login_process, who => $who,
+    channel => 'msg', handler => 'handle_process_output',
+    arguments => [$self, $who]);
 
   return "Sorry, I don't have GitHub access codes for you (anymore?).\n" .
       "I'll send you instructions in a private message.";
@@ -1857,9 +1850,9 @@ sub authenticate_nick($$$)
   return "I already have GitHub access codes for you."
       if $self->accesskey($who);
 
-  $self->forkit(
-    run => \&ask_user_to_login_process, who => $who, channel => 'msg',
-    handler => 'handle_process_output', arguments => [$self, $who]);
+  $self->forkit(run => \&ask_user_to_login_process, who => $who,
+    channel => 'msg', handler => 'handle_process_output',
+    arguments => [$self, $who]);
 
   return if $channel eq "msg";
   return "I'll send you instructions in a private message.";
