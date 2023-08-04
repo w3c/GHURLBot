@@ -95,12 +95,10 @@ sub init($)
 
   # Create a user agent to retrieve data from GitHub, if needed.
   if ($self->{github_api_token}) {
-    $self->{ua} = LWP::UserAgent->new;
-    $self->{ua}->agent(blessed($self) . '/' . VERSION);
-    $self->{ua}->timeout(10);
-    $self->{ua}->conn_cache(LWP::ConnCache->new);
-    $self->{ua}->env_proxy;
+    $self->{ua} = LWP::UserAgent->new(agent => blessed($self) . '/' . VERSION,
+      timeout => 10, keep_alive => 1, env_proxy => 1);
     $self->{ua}->default_header('X-GitHub-Api-Version', '2022-11-28');
+    $self->{ua}->default_header('Accept', 'application/json');
     $self->{ua}->default_header(
       'Authorization' => 'token ' . $self->{github_api_token});
   }
@@ -601,9 +599,8 @@ sub create_action($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
       "Please, try again later.";
 
-  $self->forkit(
-    {run => \&create_action_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $names, $text, $who]});
+  $self->forkit(run => \&create_action_process, channel => $channel,
+    arguments => [$self, $channel, $repository, $names, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -618,10 +615,6 @@ sub create_issue_process($$$$$)
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
-
-  $repository =~ s/^https:\/\/github\.com\///i or
-      print "Cannot create issues on $repository as it is not on github.com.\n"
-      and return;
 
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
@@ -676,9 +669,8 @@ sub create_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    {run => \&create_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+  $self->forkit(run => \&create_issue_process, channel => $channel,
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -756,9 +748,8 @@ sub close_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    {run => \&close_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+  $self->forkit(run => \&close_issue_process, channel => $channel,
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -848,9 +839,8 @@ sub reopen_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    {run => \&reopen_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $text, $who]});
+  $self->forkit(run => \&reopen_issue_process, channel => $channel,
+    arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -919,9 +909,8 @@ sub comment_on_issue($$$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(
-    {run => \&comment_on_issue_process, channel => $channel,
-     arguments => [$self, $channel, $repository, $issue, $comment, $who]});
+  $self->forkit(run => \&comment_on_issue_process, channel => $channel,
+    arguments => [$self, $channel, $repository, $issue, $comment, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -966,9 +955,8 @@ sub account_info($$)
 
   return "I am not using a GitHub account." if !$self->{github_api_token};
 
-  $self->forkit(
-    {run => \&account_info_process, channel => $channel,
-     arguments => [$self, $channel]});
+  $self->forkit(run => \&account_info_process, channel => $channel,
+    arguments => [$self, $channel]);
   return undef;		     # The forked process willl print a result
 }
 
@@ -996,8 +984,7 @@ sub get_issue_summary_process($$$$)
       return;
 
   $res = $self->{ua}->get(
-    "https://api.github.com/repos/$owner/$repo/issues/$issue",
-    Accept => 'application/json');
+    "https://api.github.com/repos/$owner/$repo/issues/$issue");
 
   print STDERR "Channel $channel, info $repository#$issue -> ",$res->code,"\n";
 
@@ -1063,8 +1050,8 @@ sub maybe_expand_references($$$$)
 	next;
       };
       # $self->log("Channel $channel $repository/issues/$issue");
-      $self->forkit({run => \&get_issue_summary_process, channel => $channel,
-		     arguments => [$self, $channel, $repository, $issue]});
+      $self->forkit(run => \&get_issue_summary_process, channel => $channel,
+	arguments => [$self, $channel, $repository, $issue]);
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } elsif ($ref =~ /^@/		# It's a reference to a GitHub user name
@@ -1276,8 +1263,7 @@ sub find_issues_process($$$$$$$$$$)
   $q .= "&creator=" . esc($self->name_to_login($creator)) if $creator;
   $q .= "&labels=" . esc($labels) if $labels;
   $res = $self->{ua}->get(
-    "https://api.github.com/repos/$owner/$repo/issues?$q",
-    Accept => 'application/json');
+    "https://api.github.com/repos/$owner/$repo/issues?$q");
 
   print STDERR "Channel $channel, list $q in $owner/$repo -> ",$res->code,"\n";
 
