@@ -92,7 +92,7 @@ sub init($)
 
   # Create a user agent to retrieve data from GitHub.
   $self->{ua} = LWP::UserAgent->new(agent => blessed($self) . '/' . VERSION,
-    imeout => 10, keep_alive => 1, env_proxy => 1);
+    timeout => 10, keep_alive => 1, env_proxy => 1);
   $self->{ua}->default_header('X-GitHub-Api-Version', '2022-11-28');
   $self->{ua}->default_header('Accept', 'application/json');
 
