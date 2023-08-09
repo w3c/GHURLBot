@@ -550,7 +550,7 @@ sub create_action_process($$$$$$$)
   if ($res->code == 403) {
     print "say Cannot create action. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "say Cannot create action. You have insufficient (or expired) authorization.\n";
+    print "say Cannot create action. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 404) {
     print "say Cannot create action. Please, check that you have write access to $repository\n";
   } elsif ($res->code == 410) {
@@ -635,7 +635,7 @@ sub create_issue_process($$$$$)
   if ($res->code == 403) {
     print "say Cannot create issue. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "say Cannot create issue. You have insufficient (or expired) authorization.\n";
+    print "say Cannot create issue. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 404) {
     print "say Cannot create issue.  Please, check that you have write access to $repository.\n";
   } elsif ($res->code == 410) {
@@ -709,7 +709,7 @@ sub close_issue_process($$$$$$)
   if ($res->code == 403) {
     print "say Cannot close issue $text. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "say Cannot close issue. I have insufficient (or expired) authorization.\n";
+    print "say Cannot close issue. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 404) {
     print "say Cannot close issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -783,7 +783,7 @@ sub reopen_issue_process($$$$$)
   if ($res->code == 403) {
     print "say Cannot reopen issue $text. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "say Cannot reopen issue. Insufficient or expired authorization.\n";
+    print "say Cannot reopen issue. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 404) {
     print "say Cannot reopen issue $text. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -869,7 +869,7 @@ sub comment_on_issue_process($$$$$$$)
   if ($res->code == 403) {
     print "say Cannot add a comment to issue $issue. Forbidden.\n";
   } elsif ($res->code == 401) {
-    print "say Cannot add a comment. Insufficient or expired authorization.\n";
+    print "say Cannot add a comment. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 404) {
     print "say Cannot add a comment to issue $issue. Issue not found.\n";
   } elsif ($res->code == 410) {
@@ -1232,6 +1232,8 @@ sub find_issues_process($$$$$$$$$$)
   if ($res->code == 404) {
     print "say Repository \"$owner/$repo\" not found\n";
     return;
+  } elsif ($res->code == 401) {
+    print "say Cannot search in $owner/$repo. You or I have insufficient (or revoked?) authorization.\n";
   } elsif ($res->code == 422) {
     print "say Validation failed\n";
     return;
@@ -1850,8 +1852,8 @@ sub authenticate_nick($$$)
 {
   my ($self, $channel, $who) = @_;
 
-  return "I already have GitHub access codes for you."
-      if $self->accesskey($who);
+  # return "I already have GitHub access codes for you."
+  #     if $self->accesskey($who);
 
   $self->forkit(run => \&ask_user_to_login_process, who => $who,
     channel => 'msg', handler => 'handle_process_output',
