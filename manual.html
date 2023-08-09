@@ -12,6 +12,8 @@
 	   margin-left: auto; margin-right: auto; background: #eee}
     th, td {border-bottom: 1px solid #999; padding: 0.5em}
     td code {color: black; background: none}
+    :target::before {content: "🞋"; display: inline-block; width: 1em;
+      margin-left: -1em; color: red}
   </style>
 
   <h1>Ghurlbot manual</h1>
@@ -134,7 +136,7 @@
       </tr>
       <tr>
 	<td class=command><code>gb, don't ignore Zakim</code></td>
-        <td><a href="ignore">Let Zakim open/close issues &amp; actions
+        <td><a href="#ignore">Let Zakim open/close issues &amp; actions
         again</a></td>
       </tr>
       <tr>
@@ -630,12 +632,10 @@
 
   <p>That authorization involves entering a one-time code in a web
     page on GitHub. It creates an association between your GitHub
-    account, gb and your nick name on IRC. The association lasts
-    (currently) eight hours. It ends earlier if you disconnect from
-    IRC or leave all channels where gb is active (or if gb leaves all
-    channels on which you are active). On the other hand, changing
-    your nick does not break the association: gb simply moves it to
-    your new nick.
+    account, gb and your nick name on IRC. The association lasts as
+    long as you stay on an IRC channel that also has gb. (You can
+    change IRC nicks without breaking the association; gb will notice
+    the new nick and use that.)
 
   <p>You don't need to wait until gb tells you that authentication is
     needed. You can start the process yourself with
@@ -653,6 +653,22 @@
 
   <pre class=command>&lt;joe&gt; gb, forget me
 &lt;gb&gt; OK.</pre>
+
+  <p>You can also go to GitHub and remove the association there (e.g.,
+    if you don't trust gb anymore). Go to</p>
+
+  <blockquote>
+    <p><a href="https://github.com/settings/connections/applications/"
+	  >https://github.com/settings/connections/applications/</a></p>
+  </blockquote>
+
+  <p>and look for ‘gb on IRC’ under ‘Authorized GitHub Apps’.</p>
+
+  <p>Gb is not notified if you revoke the authorization directly on
+    GitHub. It will report an error the next time you try to use
+    it. To re-authorize it, you will have to explictly issue
+    the <code>gb, auth me</code> command, or leave all IRC channels
+    and rejoin.</p>
 
   <h2 id=help>Getting help</h2>
 
