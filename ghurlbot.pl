@@ -1262,7 +1262,7 @@ sub find_issues($$$$$$$$)
       return $self->ask_user_to_login($who);
 
   $repo = $self->find_matching_repository($channel, $repo // '') or
-      return "Sorry, I don't know what repository to use.";
+      return "sorry, I don't know what repository to use.";
 
   $self->forkit(run => \&find_issues_process, channel => $channel,
     handler => 'handle_process_output',
@@ -1420,8 +1420,23 @@ sub help($$)
       "delay, status, on, off, issues, names, persons, teams, invite,\n" .
       "list, search, find, get, look up, is, =, ignore, don't ignore,\n" .
       "do not ignore, close, reopen, comment, note, auth me,\n" .
-      "authenticate me, bye.  Example: $me, help #"
+      "authenticate me, forget me, bye.  Example: $me, help #"
       if $text =~ /\bcommands\b/i;
+
+  return
+      "the command \"$me, $1\" stops me from accessing GitHub\n" .
+      "for you. See also \"$me, help auth me\" to enable access again.\n" .
+      "Example: $me, forget me"
+      if $text =~ /\b(forget +me)\b/i;
+
+  return
+      "the command \"$me, $1\" associates you with\n" .
+      "a GitHub account and allows me to access GitHub for you.\n" .
+      "I'll give you a one-time code (in a private message) to enter\n" .
+      "on https://github.com/login/device\n" .
+      "See also \"$me, help forget me\"\n" .
+      "Aliases: auth me, authenticate me. Example: $me, auth me"
+      if $text =~ /\b(auth +me|authenticate +me)\b/i;
 
   return
       "when I see \"xxx/yyy#nn\" or \"yyy#nn\" or \"#nn\" (where nn is\n" .
@@ -1593,14 +1608,6 @@ sub help($$)
       "See also \"$me, help use\" for creating a list of repositories.\n" .
       "Example: reopen #1"
       if $text =~ /\breopen\b/i;
-
-  return
-      "the command \"$me, $1\" associates you with\n" .
-      "a GitHub account and allows me to access GitHub for you.\n" .
-      "I'll give you a one-time code (in a private message) to enter\n" .
-      "on https://github.com/login/device\n" .
-      "Aliases: auth me, authenticate me. Example: $me, auth me"
-      if $text =~ /\b(auth +me|authenticate +me)\b/i;
 
   return
       "the command \"$me, bye\" tells me to leave this channel.\n" .
@@ -1842,7 +1849,7 @@ sub ask_user_to_login($$)
     channel => 'msg', handler => 'handle_process_output',
     arguments => [$self, $who]);
 
-  return "Sorry, I don't have GitHub access codes for you (anymore?).\n" .
+  return "sorry, I don't have GitHub access codes for you (anymore?).\n" .
       "I'll send you instructions in a private message.";
 }
 
