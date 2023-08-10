@@ -1307,7 +1307,7 @@ sub find_issues($$$$$$$$$)
       "an access token." if ! defined $self->{github_api_token};
 
   $repo = $self->find_matching_repository($channel, $repo // '') or
-      return "Sorry, I don't know what repository to use.";
+      return "sorry, I don't know what repository to use.";
 
   $self->forkit(run => \&find_issues_process, channel => $channel,
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
@@ -1433,7 +1433,6 @@ sub said($$)
     $7, $8, $9 // $3, $10, $1 // $4 // $11 // $12)
       if $addressed &&
       $text =~ /^(verbosely +)?(?:find|look +up|get|search|search +for|list)(?:( +all)? +(my))?( +full)?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?)| +(with +descriptions?|in +full))*( +verbosely)? *\.? *$/i;
-
 
   return $self->maybe_expand_references($text, $channel, $addressed);
 }
