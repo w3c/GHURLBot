@@ -1194,11 +1194,12 @@ sub set_github_alias($$$)
 
 
 # find_issues_process -- process to get a list of issues/actions with criteria
-sub find_issues_process($$$$$$$$$$)
+sub find_issues_process($$$$$$$$$$$)
 {
   my ($body, $self, $channel, $who, $state, $type, $labels, $creator,
-    $assignee, $repo) = @_;
+    $assignee, $repo, $full) = @_;
   use constant MAX => 99;	# Max # of issues to list. Must be < 100
+  use constant MAXFULL => 10;	# Max # of issues to list in full. Must be < 100
   my ($owner, $res, $ref, $q, $s, $n);
 
   # This is not a method, but a function that is called by forkit() to
@@ -1215,7 +1216,7 @@ sub find_issues_process($$$$$$$$$$)
 
   $labels =~ s/ //g if $labels;
   $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
-  $q = "per_page=".(MAX + 1)."&state=$state";
+  $q = "per_page=".($full ? MAXFULL + 1 : MAX + 1)."&state=$state";
   $creator = $who if $creator && $creator =~ /^m[ey]$/i;
   $assignee = $who if $assignee && $assignee =~ /^m[ey]$/i;
   $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
@@ -1245,17 +1246,26 @@ sub find_issues_process($$$$$$$$$$)
 
   $ref = decode_json($res->decoded_content);
   $n = @$ref;
-  $n = MAX if $n > MAX;
-  $s = join(", ", map("#".$_->{number}, @$ref[0..$n-1]));
-  $s .= " and more" if MAX < @$ref;
-  print "say Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
+  if (! $full) {
+    $n = MAX if $n > MAX;
+    $s = join(", ", map("#".$_->{number}, @$ref[0..$n-1]));
+    $s .= " and more" if MAX < @$ref;
+    print "say Found $type in $owner/$repo: ", ($s eq '' ? "none" : $s), "\n";
+  } else {
+    $n = MAXFULL if $n > MAXFULL;
+    get_issue_summary_process($body, $self, $channel,
+      "https://github.com/$owner/$repo", $ref->[$_]->{number})
+	foreach 0 .. $n - 1;
+    print "… and more\n" if MAXFULL < @$ref;
+  }
 }
 
 
 # find_issues -- get a list of issues or actions with criteria
-sub find_issues($$$$$$$$)
+sub find_issues($$$$$$$$$)
 {
-  my ($self,$channel,$who,$state,$type,$labels,$creator,$assignee,$repo) = @_;
+  my ($self, $channel, $who, $state, $type, $labels, $creator,
+      $assignee, $repo, $full) = @_;
 
   # Check that we have a GitHub accesskey for this nick.
   $self->accesskey($who) or
@@ -1267,7 +1277,7 @@ sub find_issues($$$$$$$$)
   $self->forkit(run => \&find_issues_process, channel => $channel,
     handler => 'handle_process_output',
     arguments => [$self, $channel, $who, $state, $type, $labels, $creator,
-      $assignee, $repo]);
+      $assignee, $repo, $full]);
 }
 
 
@@ -1387,10 +1397,10 @@ sub said($$)
       if $addressed &&
       $text =~ /^([^ ]+)(?:\s*=\s*|\s+is\s+)@?([^ ]+)$/i;
 
-  return $self->find_issues($channel, $who, $2 // "open", $3 // "issues",
-    $4, $5, $6 // $1, $7)
+  return $self->find_issues($channel, $who, $5 // $2 // "open", $6 // "issues",
+    $7, $8, $9 // $3, $10, $1 // $4 // $11 // $12)
       if $addressed &&
-      $text =~ /^(?:find|look +up|get|search|search +for|list)(?: +(my))?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?))* *\.? *$/i;
+      $text =~ /^(verbosely +)?(?:find|look +up|get|search|search +for|list)(?:( +all)? +(my))?( +full)?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?)| +(with +descriptions?|in +full))*( +verbosely)? *\.? *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed, $who);
 }
