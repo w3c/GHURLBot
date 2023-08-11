@@ -89,6 +89,15 @@
 	<td><a href="#search">List issues/actions with various criteria</a></td>
       </tr>
       <tr>
+	<td class=command><code>gb, next<br>
+	  gb, next list</code>
+	<td><a href="#search">List more issues/actions</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>gb, set lines to 8</code>
+	<td><a href="#maxlines">How many full issues to show at a time</a></td>
+      </tr>
+      <tr>
 	<td class=command><code>/invite gb</code></td>
 	<td><a href="#invite">Invite gb to the current
 	channel</a></td>
@@ -465,17 +474,35 @@
 
   <pre class=command>&lt;joe&gt; gb, list actions for me from rdf-star</pre>
 
-  <p>If the result contains more than 100 issues, gb will list
-    only the 100 highest numbers.</p>
+  <p>If the result contains more than 99 issues, gb will list
+    only the 99 highest numbers. To see the next 99, use this:</p>
+
+  <pre class=command>&lt;joe&gt; gb, next</pre>
+
+  <p><code>next list</code> or <code>find next</code>, etc. also works.
 
   <p>If you add <code>verbosely</code>, <code>full</code>, <code>with
     descriptions</code> or <code>in full</code> in an appropriate
     place in the command, gb will not show the numbers of the issues,
     but the full description of each issue.</p>
 
-  <p>In this case gb will list at most 10 issues. Note that, because
-    IRC imposes a limit on the number of lines per second, listing 10
-    issues takes about 23 seconds.</p>
+  <p>In this case gb will, by default, list at most 10 issues.
+    See <a href="#maxlines" >‘Setting the number of full issues to
+    display’</a> below to change that number.</p>
+
+  <h2 id=maxlines>Setting the number of full issues to display</h2>
+
+  <p>When asked to list issues or action with full descriptions, gb
+    will by default display no more than 10 issues. You can change
+    that number with something like</p>
+
+  <pre class=command>&lt;joe&gt; set lines to 12
+&lt;joe&gt; lines 12
+&lt;joe&gt; lines = 12</pre>
+
+  <p>The maximum is 99. But note that, because IRC imposes a limit on
+    the number of lines per second, listing 10 issues already takes
+    about 23 seconds.</p>
 
   <h2 id=ignore>IRC nicks that should not open or close issues &amp;
     actions</h2>
