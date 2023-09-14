@@ -1044,7 +1044,7 @@ sub maybe_expand_references($$$$$)
 
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
-  while ($text =~ /(?:^|[^\w@#])\K(([a-zA-Z0-9\/._-]*)#([0-9]+)|@([\w-]+))(?=\W|$)/g) {
+  while ($text =~ /(?:^|[^a-z0-9._@#\/:-])\K(((?:[a-z0-9._-]+(?:\/[a-z0-9._-]+)?)?)#([0-9]+)|@([\w-]+))(?=\W|$)/ig) {
     my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
