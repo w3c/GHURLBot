@@ -223,9 +223,9 @@ sub read_mapfile($)
       push @{$self->{repos}->{$channel}}, $1 if $1;
     } elsif ($_ =~ /^\s*delay\s+([0-9]+)\s*$/) {
       $self->{delays}->{$channel} = 0 + $1;
-    } elsif ($_ =~ /\s*issues\s+off\s*$/) {
+    } elsif ($_ =~ /^\s*issues\s+off\s*$/) {
       $self->{suspend_issues}->{$channel} = 1;
-    } elsif ($_ =~ /\s*names\s+off\s*$/) {
+    } elsif ($_ =~ /^\s*names\s+off\s*$/) {
       $self->{suspend_names}->{$channel} = 1;
     } elsif ($_ =~ /^\s*ignore\s+([^\s]+)\s*$/) {
       $self->{ignored_nicks}->{$channel}->{fc $1} = $1;
