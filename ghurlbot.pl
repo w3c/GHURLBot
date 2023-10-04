@@ -72,6 +72,8 @@ use constant HOME => 'https://w3c.github.io/GHURLBot';
 use constant VERSION => '0.3';
 use constant DEFAULT_DELAY => 15;
 use constant DEFAULT_MAXLINES => 10; # Nr. of issues to list in full. ( <= 100)
+my $githubissue =
+    qr{https://github\.com/[a-z0-9._-]+/[a-z0-9._-]+/issues/[0-9]+}i;
 
 # GitHub limits requests to 5000 per hour per authenticated user (and
 # will return 403 if the limit is exceeded). We impose an extra limit
@@ -455,12 +457,21 @@ sub find_repository_for_issue($$$)
 {
   my ($self, $channel, $ref) = @_;
 
-  my ($prefix, $issue) = $ref =~ /^([a-z0-9\/._-]*)#([0-9]+)$/i or
-      $self->log("Bug! wrong argument to find_repository_for_issue()") and
-      return undef;
-
-  return $self->find_matching_repository($channel, $prefix);
+  # $ref may be an abbreviated issue reference (#nn, repo#nn, or
+  # owner/repo#nn), or a full URL
+  # (https://github.com/owner/repo/issues/nn).
+  if ($ref =~
+    m{^(https://github\.com/[a-z0-9._-]+/[a-z0-9._-]+)/issues/([0-9]+)$}i) {
+    return ($1, $2);
+  } elsif ($ref =~ m{^([a-z0-9/._-]*)#([0-9]+)$}i) {
+    my $issue = $2;
+    return ($self->find_matching_repository($channel, $1), $issue);
+  } else {
+    $self->log("Bug! wrong argument to find_repository_for_issue()");
+    return (undef, undef);
+  }
 }
+
 
 # name_to_login -- return the github name for a name, otherwise return the name
 sub name_to_login($$)
@@ -686,14 +697,12 @@ sub create_issue($$$$)
 # close_issue_process -- process that closes an issue on GitHub
 sub close_issue_process($$$$$$)
 {
-  my ($body, $self, $channel, $repository, $text, $who) = @_;
-  my ($res, $content, $issuenumber, $login);
+  my ($body, $self, $channel, $repository, $issuenumber, $who) = @_;
+  my ($res, $content, $login);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
-
-  ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
   # Add a comment saying who closed the issue and then close it.
   $login = $self->name_to_login($who);
@@ -712,19 +721,19 @@ sub close_issue_process($$$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot close issue $text. Forbidden.\n";
+    print "Cannot close issue #$issuenumber. Forbidden.\n";
   } elsif ($res->code == 401) {
     print "Cannot close issue. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot close issue $text. Issue not found.\n";
+    print "Cannot close issue #$issuenumber. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot close issue $text. Issue is gone.\n";
+    print "Cannot close issue #$issuenumber. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot close issue $text. Validation failed.\n";
+    print "Cannot close issue #$issuenumber. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot close issue $text. Service unavailable.\n";
+    print "Cannot close issue #$issuenumber. Service unavailable.\n";
   } elsif ($res->code != 200) {
-    print "Cannot close issue $text. Error ".$res->code."\n";
+    print "Cannot close issue #$issuenumber. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
@@ -740,14 +749,17 @@ sub close_issue_process($$$$$$)
 sub close_issue($$$$)
 {
   my ($self, $channel, $text, $who) = @_;
-  my $repository;
+  my ($repository, $issue);
 
   return "Sorry, I cannot close issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
 
-  $repository = $self->find_repository_for_issue($channel, $text) or
-      return "Sorry, I don't know what repository to use for $text";
-  $repository =~ s/^https:\/\/github\.com\///i  or
+  # Parse the reference and infer the full repository URL.
+  ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
+  return "Sorry, I don't know what repository to use for $text" if !$issue;
+
+  # Check that it is under "https://github.com/" and then remove that part.
+  $repository =~ s/^https:\/\/github\.com\///i or
       return "Cannot close issues on $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
@@ -756,7 +768,7 @@ sub close_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&close_issue_process, channel => $channel,
-    arguments => [$self, $channel, $repository, $text, $who]);
+    arguments => [$self, $channel, $repository, $issue, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -765,14 +777,12 @@ sub close_issue($$$$)
 # reopen_issue_process -- process that reopens an issue on GitHub
 sub reopen_issue_process($$$$$)
 {
-  my ($body, $self, $channel, $repository, $text, $who) = @_;
-  my ($res, $content, $issuenumber, $comment, $login);
+  my ($body, $self, $channel, $repository, $issuenumber, $who) = @_;
+  my ($res, $content, $comment, $login);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
-
-  ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
   # Reopen and add a comment saying who reopened the issue.
   $login = $self->name_to_login($who);
@@ -791,19 +801,19 @@ sub reopen_issue_process($$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot reopen issue $text. Forbidden.\n";
+    print "Cannot reopen issue #$issuenumber. Forbidden.\n";
   } elsif ($res->code == 401) {
     print "Cannot reopen issue. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot reopen issue $text. Issue not found.\n";
+    print "Cannot reopen issue #$issuenumber. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot reopen issue $text. Issue is gone.\n";
+    print "Cannot reopen issue #$issuenumber. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot reopen issue $text. Validation failed.\n";
+    print "Cannot reopen issue #$issuenumber. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot reopen issue $text. Service unavailable.\n";
+    print "Cannot reopen issue #$issuenumber. Service unavailable.\n";
   } elsif ($res->code != 200) {
-    print "Cannot reopen issue $text. Error ".$res->code."\n";
+    print "Cannot reopen issue #$issuenumber. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
@@ -831,13 +841,16 @@ sub reopen_issue_process($$$$$)
 sub reopen_issue($$$$)
 {
   my ($self, $channel, $text, $who) = @_;
-  my $repository;
+  my ($repository, $issue);
 
   return "Sorry, I cannot open issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
 
-  $repository = $self->find_repository_for_issue($channel, $text) or
-      return "Sorry, I don't know what repository to use for $text";
+  # Parse the reference and infer the full repository URL.
+  ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
+  return "Sorry, I don't know what repository to use for $text" if !$issue;
+
+  # Check that it is under "https://github.com/" and then remove that part.
   $repository =~ s/^https:\/\/github\.com\///i  or
       return "Cannot open issues on $repository as it is not on github.com.";
 
@@ -847,7 +860,7 @@ sub reopen_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&reopen_issue_process, channel => $channel,
-    arguments => [$self, $channel, $repository, $text, $who]);
+    arguments => [$self, $channel, $repository, $issue, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -856,14 +869,12 @@ sub reopen_issue($$$$)
 # comment_on_issue_process -- process that adds a comment to an issue on GitHub
 sub comment_on_issue_process($$$$$$$)
 {
-  my ($body, $self, $channel, $repository, $issue, $comment, $who) = @_;
-  my ($issuenumber, $res, $login, $content);
+  my ($body, $self, $channel, $repository, $issuenumber, $comment, $who) = @_;
+  my ($res, $login, $content);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
-
-  ($issuenumber) = $issue =~ /#(.*)/; # Just the number
 
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
@@ -877,19 +888,19 @@ sub comment_on_issue_process($$$$$$$)
       $res->code, "\n";
 
   if ($res->code == 403) {
-    print "Cannot add a comment to issue $issue. Forbidden.\n";
+    print "Cannot add a comment to issue #$issuenumber. Forbidden.\n";
   } elsif ($res->code == 401) {
     print "Cannot add a comment. Insufficient or expired authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot add a comment to issue $issue. Issue not found.\n";
+    print "Cannot add a comment to issue #$issuenumber. Issue not found.\n";
   } elsif ($res->code == 410) {
-    print "Cannot add a comment to issue $issue. Issue is gone.\n";
+    print "Cannot add a comment to issue #$issuenumber. Issue is gone.\n";
   } elsif ($res->code == 422) {
-    print "Cannot add a comment to issue $issue. Validation failed.\n";
+    print "Cannot add a comment to issue #$issuenumber. Validation failed.\n";
   } elsif ($res->code == 503) {
-    print "Cannot add a comment to issue $issue. Service unavailable.\n";
+    print "Cannot add a comment to issue #$issuenumber. Service unavailable.\n";
   } elsif ($res->code != 201) {
-    print "Cannot add a comment to issue $issue. Error ".$res->code."\n";
+    print "Cannot add a comment to issue #$issuenumber. Error ".$res->code."\n";
   } else {
     $content = decode_json($res->decoded_content);
     print "Added -> comment $content->{html_url}\n"
@@ -900,14 +911,17 @@ sub comment_on_issue_process($$$$$$$)
 # comment_on_issue -- add a comment to an existing issue or action
 sub comment_on_issue($$$$$)
 {
-  my ($self, $channel, $issue, $comment, $who) = @_;
-  my $repository;
+  my ($self, $channel, $text, $comment, $who) = @_;
+  my ($repository, $issue);
 
   return "Sorry, I cannot add comments to issues, because I am running with" .
       "out an access token for GitHub." if !defined $self->{github_api_token};
 
-  $repository = $self->find_repository_for_issue($channel, $issue) or
-      return "Sorry, I don't know what repository to use for $issue";
+  # Parse the reference and infer the full repository URL.
+  ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
+  return "Sorry, I don't know what repository to use for $issue" if !$issue;
+
+  # Check that it is under "https://github.com/" and then remove that part.
   $repository =~ s/^https:\/\/github\.com\///i  or
       return "Cannot add a comment to $repository as it is not on github.com.";
 
@@ -1035,6 +1049,7 @@ sub maybe_expand_references($$$$$)
 {
   my ($self, $text, $channel, $addressed, $who) = @_;
   my ($linenr, $delay, $do_issues, $do_names, $response, $repository, $nrefs);
+  my ($ref, $issue, $name, $need_expansion);
 
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
@@ -1044,21 +1059,44 @@ sub maybe_expand_references($$$$$)
 
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
-  while ($text =~ /(?:^|[^a-z0-9._@#\/:-])\K(((?:[a-z0-9._-]+(?:\/[a-z0-9._-]+)?)?)#([0-9]+)|@([\w-]+))(?=\W|$)/ig) {
-    my ($ref, $prefix, $issue, $name) = ($1, $2, $3, $4);
+
+  while ($text =~
+    m{(?:\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/issues/([0-9]+)
+      |(?:^|[^a-z0-9._@\#/:-])\K((?:[a-z0-9._-]+(?:/[a-z0-9._-]+)?)?\#[0-9]+)
+      |(?:^|[^a-z0-9._@\#/:-])\K(@([\w-]+))
+      )(?=\W|$)}xig) {
+
+    if ($5) {			# @name
+      ($ref, $name) = ($5, $6);
+    } elsif ($1) {		# Full URL of an issue
+      $need_expansion = 0;	# Full URL already given
+      ($repository, $issue, $ref) = ($1, $3, "$2#$3");
+    } else {			# owner/repo#n, repo#n, or #n
+      $need_expansion = 1;	# Full URL needs to be printed
+      $ref = $4;
+      ($repository, $issue) = $self->find_repository_for_issue($channel, $ref);
+    }
+
     my $previous = $self->{history}->{$channel}->{$ref} // -$delay;
 
     if ($ref !~ /^@/		# It's a reference to an issue.
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      $repository = $self->find_repository_for_issue($channel, $ref) or do {
+      if (!$issue) {
 	$self->log("Channel $channel, cannot infer a repository for $ref");
 	$response .= "I don't know which repository to use for $ref\n"
 	    if $addressed;
 	next;
-      };
+      }
       # $self->log("Channel $channel $repository/issues/$issue");
-      $self->forkit(run => \&get_issue_summary_process, channel => $channel,
-	arguments => [$self, $channel, $repository, $issue]);
+      if (defined $self->{ua}) {
+	# We have a UA, we can try to look up the issue.
+	$self->forkit(run => \&get_issue_summary_process, channel => $channel,
+		      arguments => [$self, $channel, $repository, $issue]);
+      } elsif ($need_expansion) {
+	# We don't have a UA, and the issue was not already a full URL.
+	$response .= "$repository/issues/$issue -> #$issue\n";
+	$self->log("Channel $channel, info $repository#$issue");
+      }
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } elsif ($ref =~ /^@/		# It's a reference to a GitHub user name
@@ -1441,18 +1479,23 @@ sub said($$)
   return $self->close_issue($channel, $1, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed(?: *\.)?$/i) &&
+	$text =~ /^close +($githubissue)(?=\W|$)/i ||
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed(?: *\.)?$/i ||
+	$text =~ /^($githubissue) +closed(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->reopen_issue($channel, $1, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
-         $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i) &&
+	$text =~ /^reopen +($githubissue)(?=\W|$)/i ||
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i ||
+	$text =~ /^($githubissue) +reopened(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->comment_on_issue($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
-      $text =~ /^(?:note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i &&
+      ($text =~ /^(?:note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i ||
+	$text =~ /^(?:note|comment) +($githubissue) *:? *(.*)/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2, $who)
