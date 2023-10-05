@@ -1291,10 +1291,10 @@ sub find_issues_process($$$$)
   $ref = decode_json($res->decoded_content);
   $type = $self->{query_type}->{$channel};
   if (!@$ref) {
-    print "Found no $type in $owner_repo\n";
+    print "say Found no $type in $owner_repo\n";
   } elsif (! $self->{query_full}->{$channel}) {
     $s = join(", ", map("#".$_->{number}, @$ref));
-    print "Found $type in $owner_repo: $s\n";
+    print "say Found $type in $owner_repo: $s\n";
   } else {
     get_issue_summary_process($body, $self, $channel,
       "https://github.com/$owner_repo", $_->{number}, $who) foreach @$ref;
@@ -1320,9 +1320,6 @@ sub find_issues($$$$$$$$$)
   ($owner, $repo) =
       $repo =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "The repository must be on GitHub for searching to work.";
-
-  return "Sorry, I cannot access GitHub, because I am running without " .
-      "an access token." if ! defined $self->{github_api_token};
 
   $type = lc $type;
   $labels =~ s/ //g if $labels;
