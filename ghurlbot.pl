@@ -1521,7 +1521,7 @@ sub said($$)
   return $self->find_issues($channel, $who, $5 // $2 // "open", $6 // "issues",
     $7, $8, $9 // $3, $10, $1 // $4 // $11 // $12)
       if $addressed &&
-      $text =~ /^(verbosely +)?(?:find|look +up|get|search|search +for|list)(?:( +all)? +(my))?( +full)?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)([^ ].*?)| +(with +descriptions?|in +full))*( +verbosely)? *\.? *$/i;
+      $text =~ /^(verbosely +)?(?:find|look +up|get|search|search +for|list)(?:( +all)? +(my))?( +full)?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)?([^ ].*?)| +(with +descriptions?|in +full))*( +verbosely)? *\.? *$/i;
 
   return $self->find_next_issues($channel)
       if $addressed &&
