@@ -49,7 +49,7 @@ use v5.16;			# Enable fc
 use Getopt::Std;
 use Scalar::Util 'blessed';
 use Term::ReadKey;		# To read a password without echoing
-use open qw(:std :encoding(UTF-8)); # Undeclared streams in UTF-8
+use open qw(:encoding(UTF-8)); # Undeclared streams in UTF-8
 use File::Temp qw(tempfile tempdir);
 use File::Copy;
 use Fcntl ':flock';
@@ -60,8 +60,8 @@ use Date::Manip::Date;
 use Date::Manip::Delta;
 use POSIX qw(strftime);
 use Net::Netrc;
-use POE::Session;
-use Encode qw(str2bytes bytes2str);
+use Encode qw(encode decode);
+use POE;			# For OBJECT, ARG0 and ARG1
 
 use constant GITHUB_CLIENT_ID => 'Iv1.6702a1f710adcbde';
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
@@ -519,6 +519,35 @@ sub check_and_update_rate($$)
 }
 
 
+# handle_process_output -- handle output background processes
+sub handle_process_output
+{
+  my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
+
+  # This is not a method, but a POE event handler. It is called when a
+  # background process prints a line to STDOUT. $body has the contents
+  # of that line.
+
+  # If the text starts with "say", just write it to IRC (minus the
+  # "say"). If it starts with "code", it contains a nick and an access
+  # token that we should store.
+  $body = decode('UTF-8', $body);
+  chomp $body;
+  if (($body =~ s/^say //)) {
+    # Pick up the default arguments we squirreled away earlier.
+    my $args = $self->{forks}{$wheel_id}{args};
+    $args->{body} = $body;
+    $self->say($args);
+  } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
+    $self->accesskey($1, $2, $3, $4, $5, $6); # Store info for nick $1
+    $self->log("Got an access token for $1 (= \@$3)");
+  } else {
+    die "Bug: unrecognized output from a background process(): $body\n";
+  }
+  return;
+}
+
+
 # create_action_process -- process that creates an action item on GitHub
 sub create_action_process($$$$$$$)
 {
@@ -531,6 +560,9 @@ sub create_action_process($$$$$$$)
 
   # Creating an action item is like creating an issue, but with
   # assignees and a label "action".
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   @names = map($self->name_to_login($_),
 	       grep(/./, split(/ *,? +and +| *, */, $names)));
@@ -623,8 +655,8 @@ sub create_action($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
       "Please, try again later.";
 
-  $self->forkit(run => \&create_action_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&create_action_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $names, $text, $who]);
 
   return undef;			# The forked process will print a result
@@ -640,6 +672,9 @@ sub create_issue_process($$$$$)
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT is handled by handle_process_output().
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
@@ -694,8 +729,8 @@ sub create_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(run => \&create_issue_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&create_issue_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
@@ -711,6 +746,9 @@ sub close_issue_process($$$$$$)
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT is handled by handle_process_output().
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   ($issuenumber) = $text =~ /#(.*)/; # Just the number
 
@@ -772,8 +810,8 @@ sub close_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(run => \&close_issue_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&close_issue_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
@@ -789,6 +827,9 @@ sub reopen_issue_process($$$$$)
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT is handled by handle_process_output().
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->patch(
@@ -859,8 +900,8 @@ sub reopen_issue($$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(run => \&reopen_issue_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&reopen_issue_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $issue, $who]);
 
   return undef;			# The forked process will print a result
@@ -876,6 +917,9 @@ sub comment_on_issue_process($$$$$$$)
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT is handled by handle_process_output().
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   $self->maybe_refresh_accesskey($who);
   $res = $self->{ua}->post(
@@ -930,8 +974,8 @@ sub comment_on_issue($$$$$)
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
-  $self->forkit(run => \&comment_on_issue_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&comment_on_issue_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $issue, $comment, $who]);
 
   return undef;			# The forked process will print a result
@@ -948,6 +992,9 @@ sub get_issue_summary_process($$$$$$)
   # run as a background process. It prints text for the channel to
   # STDOUT (which is handled by handle_process_output()) and log
   # entries to STDERR.
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   ($owner, $repo) =
       $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
@@ -1044,8 +1091,8 @@ sub maybe_expand_references($$$$$)
       }
       # $self->log("Channel $channel $repository/issues/$issue");
       if ($do_lookups) {
-	$self->forkit(run => \&get_issue_summary_process, channel => $channel,
-	  handler => 'handle_process_output',
+	$self->forkit(run => \&get_issue_summary_process,
+	  handler => "handle_process_output", channel => $channel,
 	  arguments => [$self,$channel,$repository,$issue,$who]);
       } elsif ($need_expansion) {
 	# We don't have a UA, and the issue was not already a full URL.
@@ -1263,6 +1310,9 @@ sub find_issues_process($$$$)
   # STDOUT (handled by handle_process_output()) and log entries to
   # STDERR.
 
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
+
   $owner_repo = $self->{query_repo}->{$channel};
   $q = $self->{query}->{$channel};
   $q .= "&page=" . $self->{query_page}->{$channel};
@@ -1340,8 +1390,8 @@ sub find_issues($$$$$$$$$)
   $self->{query_type}->{$channel} = $type;
 
   # Start a background process to run the query.
-  $self->forkit(run => \&find_issues_process, channel => $channel,
-    handler => 'handle_process_output',
+  $self->forkit(run => \&find_issues_process,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $who]);
 }
 
@@ -1354,8 +1404,9 @@ sub find_next_issues($$$)
   return "I have not listed any issues or actions yet." if
       !$self->{query}->{$channel};
   $self->{query_page}->{$channel}++;
-  $self->forkit(run =>\&find_issues_process, channel => $channel,
-    arguments => [$self, $channel, $who]);
+  $self->forkit(run =>\&find_issues_process,
+    handler => "handle_process_output",
+    channel => $channel, arguments => [$self, $channel, $who]);
 }
 
 
@@ -1816,34 +1867,6 @@ sub nick_change($$)
 }
 
 
-# handle_process_output -- handle output background processes
-sub handle_process_output
-{
-  my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
-
-  # This is not a method, but a POE event handler. It is called when a
-  # background process prints a line to STDOUT. $body has the contents
-  # of that line.
-
-  # If the text starts with "say", just write it to IRC (minus the
-  # "say"). If it starts with "code", it contains a nick and an access
-  # token that we should store.
-  chomp $body;
-  if (($body =~ s/^say //)) {
-    # Pick up the default arguments we squirreled away earlier.
-    my $args = $self->{forks}{$wheel_id}{args};
-    $args->{body} = $body;
-    $self->say($args);
-  } elsif ($body =~ /^code ([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/) {
-    $self->accesskey($1, $2, $3, $4, $5, $6); # Store info for nick $1
-    $self->log("Got an access token for $1 (= \@$3)");
-  } else {
-    die "Bug: unrecognized output from a background process(): $body\n";
-  }
-  return;
-}
-
-
 # ask_user_to_login_process -- ask user to authenticate
 sub ask_user_to_login_process($$$)
 {
@@ -2115,9 +2138,9 @@ sub esc($)
   my ($s) = @_;
   my ($octets);
 
-  $octets = str2bytes("UTF-8", $s);
+  $octets = encode("UTF-8", $s);
   $octets =~ s/([^A-Za-z0-9._~!$'()*,=:@\/-])/"%".sprintf("%02x",ord($1))/eg;
-  return bytes2str("UTF-8", $octets);
+  return decode("UTF-8", $octets);
 }
 
 
@@ -2135,6 +2158,8 @@ sub read_netrc($;$)
 # Main body
 
 my (%opts, $ssl, $proto, $user, $password, $host, $port, $channel);
+
+binmode(STDERR, ":utf8");
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 getopts('m:n:N:r:s:v', \%opts) or die "Try --help\n";
