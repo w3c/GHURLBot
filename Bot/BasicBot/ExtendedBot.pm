@@ -725,7 +725,7 @@ effect as calling L<C<< Bot::BasicBot->say >>|say>.
 
 The subroutine can also print lines to STDERR. This has the same
 effect ad calling L<C<< Bot::BasicBot->log >>|log>. (The default log()
-method simply writes to STDERR, btu you can override it.)
+method simply writes to STDERR, but you can override it.)
 
 C<forkit> takes the following arguments:
 
@@ -744,7 +744,7 @@ C<STDOUT>, and it will be passed on to your designated handler.
 
 Optional. A method name within your current package which we can
 return the routine's data to. Defaults to the built-in method
-C<say_fork_return> (which simply sends data to channel).
+C<_fork_said> (which simply sends data to channel).
 
 =item callback
 
