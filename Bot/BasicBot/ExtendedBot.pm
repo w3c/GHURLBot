@@ -744,7 +744,7 @@ C<STDOUT>, and it will be passed on to your designated handler.
 
 Optional. A method name within your current package which we can
 return the routine's data to. Defaults to the built-in method
-C<say_fork_return> (which simply sends data to channel).
+C<_fork_said> (which simply sends data to channel).
 
 =item callback
 
