@@ -285,7 +285,7 @@ sub say
 }
 
 
-# emote -- send test to a channel as with "/me"
+# emote -- send text to a channel as with "/me"
 sub emote
 {
   # Override the inherited method, because we want to handle multiline text.
