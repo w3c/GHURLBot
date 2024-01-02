@@ -369,9 +369,9 @@
     <li>
       <p>If it has a due date, the due date must start with the word
 	‘due‘ and a colon (:) and look like either</p>
-      <pre>due: YYYY-MM-DD</pre>
+      <pre class=example>due: YYYY-MM-DD</pre>
       <p>or</p>
-      <pre>due: YYYY-MM-DD (comment)</pre>
+      <pre class=example>due: YYYY-MM-DD (comment)</pre>
       <p>where YYYY is the year (4 digits), MM is the month (2
 	digits), DD is the day (2 digits). E.g., ‘2023-08-30’. The
 	comment between parentheses is arbitrary text that does not
@@ -384,6 +384,15 @@
 	both at the start and at the end, Gb will use the one at the
 	start.)</p></li>
   </ol>
+
+  <p>When Gb itself creates an action it puts the due date at the end
+    of the body and it begins the body of the action with a line
+    similar to this:</p>
+
+  <pre class=example>Opened by Eve via IRC channel #aria on irc.w3.org</pre>
+
+  <p>This line is intended to tell readers that the action was created
+    as a result of a command on IRC.</p>
 
   <h2 id=close>Closing an issue or action</h2>
 
