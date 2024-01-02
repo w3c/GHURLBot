@@ -513,8 +513,8 @@ sub check_and_update_rate($$)
 }
 
 
-# fork_said -- handler for text from a forked process: decode and call say()
-sub fork_said($$$)
+# handle_process_output -- handler for text from a forked process: decode and call say()
+sub handle_process_output($$$)
 {
   my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
 
@@ -637,7 +637,7 @@ sub create_action($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&create_action_process,
-    handler => "fork_said", channel => $channel,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $names, $text, $who]);
 
   return undef;			# The forked process will print a result
@@ -711,7 +711,7 @@ sub create_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&create_issue_process,
-    handler => "fork_said", channel => $channel,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $text, $who]);
 
   return undef;			# The forked process will print a result
@@ -795,7 +795,7 @@ sub close_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&close_issue_process,
-    handler => "fork_said", channel => $channel,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $issue, $who]);
 
   return undef;			# The forked process will print a result
@@ -891,7 +891,7 @@ sub reopen_issue($$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&reopen_issue_process,
-    handler => "fork_said", channel => $channel,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $issue, $who]);
 
   return undef;			# The forked process will print a result
@@ -904,12 +904,12 @@ sub comment_on_issue_process($$$$$$$)
   my ($body, $self, $channel, $repository, $issuenumber, $comment, $who) = @_;
   my ($res, $login, $content);
 
-  binmode(STDOUT, ":utf8");
-  binmode(STDERR, ":utf8");
-
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
   # Output to STDOUT goes to IRC.
+
+  binmode(STDOUT, ":utf8");
+  binmode(STDERR, ":utf8");
 
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
@@ -966,7 +966,7 @@ sub comment_on_issue($$$$$)
       "Please, try again later.";
 
   $self->forkit(run => \&comment_on_issue_process,
-    handler => "fork_said", channel => $channel,
+    handler => "handle_process_output", channel => $channel,
     arguments => [$self, $channel, $repository, $issue, $comment, $who]);
 
   return undef;			# The forked process will print a result
@@ -1015,7 +1015,8 @@ sub account_info($$)
 
   return "I am not using a GitHub account." if !$self->{github_api_token};
 
-  $self->forkit(run => \&account_info_process, handler => "fork_said",
+  $self->forkit(run => \&account_info_process,
+    handler => "handle_process_output",
     channel => $channel, arguments => [$self, $channel]);
   return undef;		     # The forked process willl print a result
 }
@@ -1133,7 +1134,7 @@ sub maybe_expand_references($$$$$)
       if (defined $self->{ua}) {
 	# We have a UA, we can try to look up the issue.
 	$self->forkit(run => \&get_issue_summary_process,
-	  handler => "fork_said", channel => $channel,
+	  handler => "handle_process_output", channel => $channel,
 	  arguments => [$self, $channel, $repository, $issue]);
 	# get_issue_summary_process(undef, $self, $channel, $repository, $issue);
       } elsif ($need_expansion) {
@@ -1424,8 +1425,9 @@ sub find_issues($$$$$$$$$)
   $self->{query_type}->{$channel} = $type;
 
   # Start a background process to run the query.
-  $self->forkit(run => \&find_issues_process, handler => "fork_said",
-    channel => $channel, arguments => [$self, $channel]);
+  $self->forkit(run => \&find_issues_process,
+    handler => "handle_process_output", channel => $channel,
+    arguments => [$self, $channel]);
 }
 
 
@@ -1437,7 +1439,8 @@ sub find_next_issues($$)
   return "I have not listed any issues or actions yet." if
       !$self->{query}->{$channel};
   $self->{query_page}->{$channel}++;
-  $self->forkit(run =>\&find_issues_process, handler => "fork_said",
+  $self->forkit(run =>\&find_issues_process,
+    handler => "handle_process_output",
     channel => $channel, arguments => [$self, $channel]);
 }
 
@@ -1886,8 +1889,6 @@ sub read_netrc($;$)
 
 my (%opts, $ssl, $proto, $user, $password, $host, $port, $channel);
 
-# binmode(STDIN, ":utf8");
-# binmode(STDOUT, ":utf8");
 binmode(STDERR, ":utf8");
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
