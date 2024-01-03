@@ -31,6 +31,8 @@
 #
 # TODO: Set the default to not expanding names ("set names = off")?
 #
+# TODO: Try to track nick changes and update matchin aliases?
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -517,6 +519,10 @@ sub check_and_update_rate($$)
 sub handle_process_output($$$)
 {
   my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
+
+  # This is not a method, but a POE event handler. It is called when a
+  # background process prints a line to STDOUT. $body has the contents
+  # of that line.
 
   # pick up the default arguments we squirreled away earlier
   my $args = $self->{forks}{$wheel_id}{args};
@@ -1075,7 +1081,7 @@ sub get_issue_summary_process($$$$$)
       $comment = " due " . ($1 // $2 // $3);
     }
     print "$repository/issues/$issue -> Action $issue ",
-	($ref->{state} eq 'closed' ? '[closed] ' : ''),	"$ref->{title} (on ",
+	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),	"$ref->{title} (on ",
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
   } else {
     print "$repository/issues/$issue -> ",
