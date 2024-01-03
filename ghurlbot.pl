@@ -820,6 +820,23 @@ sub close_issue($$$$)
 }
 
 
+# look_for_due_date -- find a due date, if any, in the given text
+sub look_for_due_date($$)
+{
+  my ($self, $body) = @_;
+
+  # A due date, if any, must be on a line of its own and look like
+  # "Due: yyyy-mm-dd" with optionally something in parentheses after
+  # it and optionally a full stop. For backward compatibility with
+  # very early versions, "due dd mmmm yyyy" at the start of the body
+  # is also supported.
+  return " due $1" if $body =~
+   /^[ \t]*Due:[ \t]+([0-9]{4}-[0-9]{2}-[0-9]{2})[ \t]*(?:\(.*\))?[. \t\r]*$/mi;
+  return " due $1" if $body =~ /^due ([1-3 ]?[0-9] [a-z]{3} [0-9]{4}\b)/si;
+  return '';
+}
+
+
 # reopen_issue_process -- process that reopens an issue on GitHub
 sub reopen_issue_process($$$$$)
 {
@@ -859,14 +876,7 @@ sub reopen_issue_process($$$$$)
   } else {
     $content = decode_json($res->decoded_content);
     if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      $comment = "";
-      if ($content->{body} && $content->{body} =~
-	  /^due ([1-9 ]?[1-9] [a-z]{3} [0-9]{4})\b
-	  |^\s*Due:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\b
-	  |\bDue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
-	  /xsi) {
-	$comment = " due " . ($1 // $2 // $3);
-      }
+      $comment = $self->look_for_due_date($content->{body} // '');
       print "say Reopened -> action #$content->{number} $content->{html_url} ",
 	  "$content->{title} (on ",
 	  join(', ', map($_->{login}, @{$content->{assignees}})),
@@ -1025,14 +1035,7 @@ sub get_issue_summary_process($$$$$$)
 
   $ref = decode_json($res->decoded_content);
   if (grep($_->{name} eq 'action', @{$ref->{labels}})) {
-    $comment = "";
-    if ($ref->{body} && $ref->{body} =~
-	/^due ([1-9 ]?[1-9] [a-z]{3} [0-9]{4})\b
-	|^\s*Due:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\b
-	|\bDue:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*(?:\([^)]*\)\s*)?\.?\s*$
-	/xsi) {
-      $comment = " due " . ($1 // $2 // $3);
-    }
+    $comment = $self->look_for_due_date($ref->{body} // '');
     print "say $repository/issues/$issue -> Action $issue ",
 	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),	"$ref->{title} (on ",
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
