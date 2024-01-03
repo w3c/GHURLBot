@@ -31,7 +31,7 @@
 #
 # TODO: Set the default to not expanding names ("set names = off")?
 #
-# TODO: Try to track nick changes and update matchin aliases?
+# TODO: Try to track nick changes and update matching aliases?
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
