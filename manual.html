@@ -12,14 +12,16 @@
 	   margin-left: auto; margin-right: auto; background: #eee}
     th, td {border-bottom: 1px solid #999; padding: 0.5em}
     td code {color: black; background: none}
+    :target::before {content: "🞋"; display: inline-block; width: 1em;
+      margin-left: -1em; color: red}
   </style>
 
   <h1>Ghurlbot manual</h1>
 
   <p>Ghurlbot (<b>G</b>it<b>H</b>ub <b>URL</b> ro<b>bot</b>) is an IRC
-    bot that looks up GitHub issues, creates new issues and action
-    items, or closes them. It typically has the nickname ‘gb’ on IRC,
-    which is what we will use here.</p>
+    bot that looks up GitHub issues, creates new issues
+    and action items, or closes them. It typically has the nickname
+    ‘gb’ on IRC, which is what we will use here.</p>
 
   <p>This manual describes how to interact with a running gb on
     IRC. A separate manual is included in
@@ -137,7 +139,7 @@
       </tr>
       <tr>
 	<td class=command><code>gb, don't ignore Zakim</code></td>
-        <td><a href="ignore">Let Zakim open/close issues &amp; actions
+        <td><a href="#ignore">Let Zakim open/close issues &amp; actions
         again</a></td>
       </tr>
       <tr>
@@ -184,7 +186,7 @@
     succeeds, it not only shows a URL, but also a summary, e.g.:</p>
 
   <pre class=command>&lt;joe&gt; Next topic: w3c/scribe2#15
-&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; Issue 15 [closed] Feature request: syntax for verbatim lines of code (dbooth-boston)</pre>
+&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston)</pre>
 
   <p>Gb fails to look up an issue if it does not have access to
     a GitHub account or if the issue is in a private repository,
@@ -335,9 +337,14 @@
   <p>You can only assign an action to somebody who is associated with
     that repository (an owner or a collaborator).</p>
 
-  <p>An action is in fact a special kind of issue: in addition to a
-    title, it also has a label (‘action’), a due date and a person
-    assigned to it.</p>
+  <p>You can optionally prefix the assignee with <code>@</code>:</p>
+
+  <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
+
+  <p>Instead of somebody's GitHub account name, you can use an IRC
+    nick or an alias, but only if gb knows what the corresponding
+    GitHub account is. See <a href="#aliases" >‘Mapping names to
+    GitHub accounts’</a>.</p>
 
   <p>By default, an action gets a due date in one week, but you can
     explicitly set a date:</p>
@@ -347,12 +354,26 @@
   <p>Many different ways of describing a date are supported, including
     things like ‘in 2 weeks’, ‘tomorrow’ and ‘next Tuesday’.</p>
 
-  <p>By default, the name must be the name of an account on GitHub,
-    but you can define <a href="#aliases" >aliases</a>, see below. You
-    can also prefix the name with <code>@</code> (in which case
-    Gb will not check if it knows an alias).
+  <h2 id=close>Closing an issue or action</h2>
 
-  <pre class=command>&lt;joe&gt; action @alex: review chapter 1</pre>
+  <p>You can close an issue or action by starting a line
+    with <code>close</code>, followed by an issue number, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; close aria#15
+&lt;joe&gt; close #13
+&lt;joe&gt; close w3c/aria#17</pre>
+
+  <p>The
+    issue number can include the full name of the repository or an
+    abbreviation, see <a href="#info" >‘IRC command to link to an
+    issue: #’</a>.
+
+  <h2 id=reopen>Reopening an issue or action</h2>
+
+  <p>You can reopen an issue or action by starting a line
+    with <code>reopen</code>, followed by an issue number, e.g.:</p>
+
+  <pre class=command>&lt;joe&gt; reopen #15</pre>
 
   <h2 id=action-format>Creating &amp; editing actions without Gb</h2>
 
@@ -394,27 +415,6 @@
   <p>This line is intended to tell readers that the action was created
     as a result of a command on IRC.</p>
 
-  <h2 id=close>Closing an issue or action</h2>
-
-  <p>You can close an issue or action by starting a line
-    with <code>close</code>, followed by an issue number, e.g.:</p>
-
-  <pre class=command>&lt;joe&gt; close aria#15
-&lt;joe&gt; close #13
-&lt;joe&gt; close w3c/aria#17</pre>
-
-  <p>The
-    issue number can include the full name of the repository or an
-    abbreviation, see <a href="#info" >‘IRC command to link to an
-    issue: #’</a>.
-
-  <h2 id=reopen>Reopening an issue or action</h2>
-
-  <p>You can reopen an issue or action by starting a line
-    with <code>reopen</code>, followed by an issue number, e.g.:</p>
-
-  <pre class=command>&lt;joe&gt; reopen #15</pre>
-
   <h2 id=comment>Adding a comment to an issue</h2>
 
   <p>You can add a comment to an existing issue, with
@@ -445,9 +445,9 @@
     for</code>.</p>
 
   <p>You can search for <code>issues</code> or <code>actions</code>.
-    If you omit the word, gb will search for issues. (Note that
-    actions are a special kind of issues, so searching for issues will
-    also return actions.) You can search
+    If you omit the word, gb will search for issues. (An action is a
+    kind of issue, so searching for issues will also return actions,
+    but not the other way round.) You can search
     for <code>open</code>, <code>closed</code> or <code>all</code>
     issues. If you omit the word, gb will search for open
     issues. Thus the command</p>
@@ -560,6 +560,12 @@
   <p>The first name is the one you plan to use when creating actions,
     the second is the corresponding GitHub account name. In fact, you
     can define arbitrary aliases. They don't have to be IRC nicks.
+
+  <p>Gb remembers the aliases even when it leaves and later rejoins.
+
+  <p>Be careful with nick changes: gb does not try to track nick
+    changes for aliases. So if
+    somebody's nick changes, it is up to you to renew the alias.
 
   <h2 id=invite>Inviting and dismissing the bot</h2>
 
