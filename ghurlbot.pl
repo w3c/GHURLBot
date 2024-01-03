@@ -519,8 +519,8 @@ sub check_and_update_rate($$)
 }
 
 
-# handle_process_output -- handle output background processes
-sub handle_process_output
+# handle_process_output -- handler for text from a forked process: decode and call say()
+sub handle_process_output($$$)
 {
   my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
 
@@ -532,7 +532,7 @@ sub handle_process_output
   # "say"). If it starts with "code", it contains a nick and an access
   # token that we should store.
   $body = decode('UTF-8', $body);
-  chomp $body;
+  chomp $body;		      # remove newline necessary to move data;
   if (($body =~ s/^say //)) {
     # Pick up the default arguments we squirreled away earlier.
     my $args = $self->{forks}{$wheel_id}{args};
@@ -1032,7 +1032,7 @@ sub get_issue_summary_process($$$$$$)
       $comment = " due " . ($1 // $2 // $3);
     }
     print "say $repository/issues/$issue -> Action $issue ",
-	($ref->{state} eq 'closed' ? '[closed] ' : ''),	"$ref->{title} (on ",
+	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),	"$ref->{title} (on ",
 	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
   } else {
     print "say $repository/issues/$issue -> ",
