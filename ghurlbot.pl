@@ -261,7 +261,7 @@ sub write_mapfile($)
 		   keys(%{$self->{suspend_names}}), keys(%{$self->{delays}}),
 		   keys(%{$self->{ignored_nicks}})))) {
       printf $fh "channel %s\n", $channel or die $!;
-      printf $fh "repo %s\n", $_ for sort @{$self->{repos}->{$channel} // []};
+      printf $fh "repo %s\n", $_ for @{$self->{repos}->{$channel} // []};
       printf $fh "delay %d\n", $self->{delays}->{$channel} if
 	  defined $self->{delays}->{$channel} &&
 	  $self->{delays}->{$channel} != DEFAULT_DELAY;
