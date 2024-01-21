@@ -12,8 +12,8 @@
 	   margin-left: auto; margin-right: auto; background: #eee}
     th, td {border-bottom: 1px solid #999; padding: 0.5em}
     td code {color: black; background: none}
-    :target::before {content: "◎"; display: inline-block; width: 1em;
-      margin-left: -1em; color: red}
+    :target::before {content: "⇨"; display: inline-block; width: 1.3em;
+      margin-left: -1.3em; color: red}
   </style>
 
   <h1>Ghurlbot manual</h1>
@@ -41,6 +41,16 @@
       <tr><th>Command</th> <th>Effect</th></tr>
     </thead>
     <tbody>
+      <tr>
+	<td class=command><code>/invite gb</code></td>
+	<td><a href="#invite">Invite gb to the current
+	channel</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>gb, bye</code></td>
+	<td><a href="#invite">Dismiss gb from the current
+	channel</a></td>
+      </tr>
       <tr>
 	<td class=command><code>w3c/aria#15<br>
 	    aria#15<br>
@@ -104,16 +114,6 @@
       <tr>
 	<td class=command><code>gb, set lines to 8</code>
 	<td><a href="#maxlines">How many full issues to show at a time</a></td>
-      </tr>
-      <tr>
-	<td class=command><code>/invite gb</code></td>
-	<td><a href="#invite">Invite gb to the current
-	channel</a></td>
-      </tr>
-      <tr>
-	<td class=command><code>gb, bye</code></td>
-	<td><a href="#invite">Dismiss gb from the current
-	channel</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, off<br>
@@ -398,7 +398,7 @@
 
   <ol>
     <li>
-      <p>An issue must at least have the label ‘action’ to be
+      <p>An issue must have the label ‘action’ to be
 	recognized as an action. (It may have additional
 	labels.)</p></li>
     <li>
@@ -409,27 +409,25 @@
       <pre class=example>due: YYYY-MM-DD</pre>
       <p>or</p>
       <pre class=example>due: YYYY-MM-DD (comment)</pre>
-      <p>where YYYY is the year (4 digits), MM is the month (2
-	digits), DD is the day (2 digits). E.g., ‘2023-08-30’. The
-	comment between parentheses is arbitrary text that does not
-	contain a closing parenthesis. The word ‘due’ may have both
-	upper- and lowercase letters (‘DUE’, ‘Due’, ‘DuE’, etc.). A
-	due date like this must be either at the start of the body of
-	the action, with nothing before it except maybe some white
-	space; or at the end of the body, with nothing after it except
-	possibly white space and/or a period. (If you put a due date
-	both at the start and at the end, Gb will use the one at the
-	start.)</p></li>
+      <p>where YYYY is the year (4 digits), MM is the month
+	(2 digits), DD is the day (2 digits). E.g., ‘2023-08-30’. The
+	comment between parentheses is arbitrary text. The word ‘due’
+	may have both upper- and lowercase letters (‘DUE’, ‘Due’,
+	‘DuE’, etc.). A due date must be all on one line with nothing
+	before it except maybe some white space and nothing after it
+	except possibly white space and/or a period. (If there are
+	multiple lines with due dates, Gb will use the first
+	one.)</p></li>
   </ol>
 
-  <p>When Gb itself creates an action it puts the due date at the end
-    of the body and it begins the body of the action with a line
-    similar to this:</p>
+  <p>For comparison, actions created by Gb itself have three lines in
+    the body: A line that says that the action was created as a result
+    of a command on IRC, an empty line, and a line with a due date.
+    Example:</p>
 
-  <pre class=example>Opened by Eve via IRC channel #aria on irc.w3.org</pre>
+  <pre class=example>Opened by Eve via IRC channel #aria on irc.w3.org
 
-  <p>This line is intended to tell readers that the action was created
-    as a result of a command on IRC.</p>
+Due: 2023-11-01 (Wednesday 1 November)</pre>
 
   <h2 id=comment>Adding a comment to an issue</h2>
 
