@@ -12,8 +12,8 @@
 	   margin-left: auto; margin-right: auto; background: #eee}
     th, td {border-bottom: 1px solid #999; padding: 0.5em}
     td code {color: black; background: none}
-    :target::before {content: "◎"; display: inline-block; width: 1em;
-      margin-left: -1em; color: red}
+    :target::before {content: "⇨"; display: inline-block; width: 1.3em;
+      margin-left: -1.3em; color: red}
   </style>
 
   <h1>Ghurlbot manual</h1>
@@ -35,6 +35,16 @@
       <tr><th>Command</th> <th>Effect</th></tr>
     </thead>
     <tbody>
+      <tr>
+	<td class=command><code>/invite gb</code></td>
+	<td><a href="#invite">Invite gb to the current
+	channel</a></td>
+      </tr>
+      <tr>
+	<td class=command><code>gb, bye</code></td>
+	<td><a href="#invite">Dismiss gb from the current
+	channel</a></td>
+      </tr>
       <tr>
 	<td class=command><code>w3c/aria#15<br>
 	    aria#15<br>
@@ -98,16 +108,6 @@
       <tr>
 	<td class=command><code>gb, set lines to 8</code>
 	<td><a href="#maxlines">How many full issues to show at a time</a></td>
-      </tr>
-      <tr>
-	<td class=command><code>/invite gb</code></td>
-	<td><a href="#invite">Invite gb to the current
-	channel</a></td>
-      </tr>
-      <tr>
-	<td class=command><code>gb, bye</code></td>
-	<td><a href="#invite">Dismiss gb from the current
-	channel</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, off<br>
