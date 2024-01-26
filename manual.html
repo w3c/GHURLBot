@@ -234,9 +234,17 @@
   <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
 &lt;gb&gt; https://github.com/w3c/scribe2/issues/3 -> Issue 3 [closed] Errors replacing URLs (nigelmegitt)</pre>
 
+  <h2 id=url>Look up an issue by its URL</h2>
+
+  <p>When gb sees a URL that looks like the URL of an issue on GitHub,
+    it will try to retrieve a summary of that issue from GitHub. E.g.:
+
+    <pre class=command>&lt;joe&gt; topic: https://github.com/w3c/scribe2/issues/15
+&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston)</pre>
+
   <h2 id=name>IRC command to link to a user name</h2>
 
-  <p>When somebody types <code>@</code> plus a name, it responds with
+  <p>When somebody types <code>@</code> plus a name, gb responds with
     the full URL to that person or team. E.g.:</p>
 
   <pre class=command>&lt;joe&gt; That comment came from @aliciag
@@ -246,6 +254,29 @@
     that seems to be attached to something else, such as an email
     address (e.g., ‘contact@aliciag.com’). If gb does not seem
     to recognize a reference, try to put spaces around it.</p>
+
+  <h2 id=ignore>Text that gb ignores</h2>
+
+  <p>Because gb is often used on channels where RRSAgent is also
+    active, it assumes lines that look like substitution and insertion
+    commands for RRSAgent (more
+    precisely: <a href="https://w3c.github.io/scribe2/scribedoc.html"
+    >scribe.perl</a>) are indeed that, and are not meant to be
+    interpreted by gb. E.g., it will not look up issues 14 and 15 when
+    lines looks like this:</p>
+
+  <pre class=command>&lt;joe&gt; s/like #14/like #15/
+&lt;joe&gt; i/Discuss/topic: #15/</pre>
+
+  <p>Also, borrowing
+    a <a href="https://github.github.com/gfm/#code-spans" >convention
+    from the MarkDown</a> markup language often used on GitHub, gb
+    assumes that text enclosed in equal numbers of backquotes is a
+    code span in some programming language. Thus, gb will not see
+    ‘@context’ as a user name in these lines:</p>
+
+  <pre class=command>&lt;joe&gt; Use the JSON-LD `@context`
+&lt;eva&gt; How do you use ```@context```?</pre>
 
   <h2 id=repo>Specifying the GitHub repository</h2>
 
@@ -369,11 +400,13 @@
   <h2 id=close>Closing an issue or action</h2>
 
   <p>You can close an issue or action by starting a line
-    with <code>close</code>, followed by an issue number, e.g.:</p>
+    with <code>close</code>, followed by an issue number or a URL,
+    e.g.:</p>
 
   <pre class=command>&lt;joe&gt; close aria#15
 &lt;joe&gt; close #13
-&lt;joe&gt; close w3c/aria#17</pre>
+&lt;joe&gt; close w3c/aria#17
+&lt;joe&gt; close https://github.com/w3c/scribe2/issues/15</pre>
 
   <p>(Only users who have write access to a repository can close
     issues and actions in it. See <a href="#account" >‘GitHub
@@ -387,9 +420,12 @@
   <h2 id=reopen>Reopening an issue or action</h2>
 
   <p>You can reopen an issue or action by starting a line
-    with <code>reopen</code>, followed by an issue number, e.g.:</p>
+    with <code>reopen</code>, followed by an issue number or a URL,
+    e.g.:</p>
 
-  <pre class=command>&lt;joe&gt; reopen #15</pre>
+  <pre class=command>&lt;joe&gt; reopen #15
+&lt;joe&gt; reopen https://github.com/w3c/scribe2/issues/15</pre>
+</pre>
 
   <h2 id=action-format>Creating &amp; editing actions without Gb</h2>
 
@@ -436,7 +472,9 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
     this:</p>
 
   <pre class=command>&lt;joe&gt; Note #17: Also related to http://example.org
-&lt;joe&gt; Comment aria#17: Great comment!</pre>
+&lt;joe&gt; Comment aria#17: Great comment!
+&lt;joe&gt; comment https://github.com/w3c/scribe2/issues/15: Agreed.</pre>
+</pre>
 
   <p>The colon (:) after the issue number may be omitted. Gb will
     respond with a pointer to the newly created comment on GitHub.</p>
