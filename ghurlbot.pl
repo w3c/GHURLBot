@@ -33,6 +33,17 @@
 #
 # TODO: Try to track nick changes and update matching aliases?
 #
+# TODO: Add comments (with the "note" or "comment" commands) to the
+# most recently created issue without having to say its number? Refer
+# to it as "this" or "that"?
+#
+# TODO: Edit an issue? The bot can edit issues it created itself, with
+# PATCH
+# https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}.
+# It is possible to change the title, the body, the assignees and the
+# labels: "edit #7: A new title", "edit text #7: Text for the body",
+# "edit due #7: in two weeks", etc.
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -253,7 +264,7 @@ sub write_mapfile($)
     flock $fh, LOCK_EX | LOCK_NB or
 	$self->log("Cannot lock $tempname. Continuing anyway");
 
-    # Sorting (of channel names, repo name and aliases) is not
+    # Sorting (of channel names and aliases) is not
     # necessary, but helps make the mapfile more readable.
     #
     foreach my $channel
@@ -1553,8 +1564,8 @@ sub said($$)
 
   return $self->comment_on_issue($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
-      ($text =~ /^(?:note|comment) +([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i ||
-	$text =~ /^(?:note|comment) +($githubissue) *:? *(.*)/i) &&
+      ($text =~ /^(?:note|comment) +(?:on +)?([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i ||
+	$text =~ /^(?:note|comment) +(?:on +)?($githubissue) *:? *(.*)/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2, $who)
@@ -1782,6 +1793,7 @@ sub help($$)
       "\"close xxx/yyy#nn\" tells me to close GitHub issue number nn\n" .
       "in repository xxx/yyy. If you omit xxx or xxx/yyy, I will find\n" .
       "the repository in my list of repositories.\n" .
+      "You can also give a URL: \"close https://gith.../issues/nn\"\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
       "Example: close #1"
       if $text =~ /\bclose\b/i;
@@ -1791,6 +1803,7 @@ sub help($$)
       "\"reopen xxx/yyy#nn\" tells me to reopen GitHub issue\n" .
       "number nn in repository xxx/yyy. If you omit xxx or xxx/yyy,\n" .
       "I will find the repository in my list of repositories.\n" .
+      "You can also give a URL: \"reopen https://gith.../issues/nn\"\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
       "Example: reopen #1"
       if $text =~ /\breopen\b/i;
@@ -1813,11 +1826,12 @@ sub help($$)
       if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
 
   return
-      "the command \"comment #nn: text\" or\n" .
-      "\"comment yyy#nn: text\" or \"comment xxx/yyy#nn: text\" tells\n" .
+      "the command \"$1 #nn: text\" or\n" .
+      "\"$1 yyy#nn: text\" or \"$1 xxx/yyy#nn: text\" tells\n" .
       "me to add some text to GitHub issue nn in repository xxx/yyy.\n" .
       "The colon(:) is optional. If you omit xxx or xxx/yyy, I will\n" .
       "find the repository in my list of repositories.\n" .
+      "You can also use a URL: \"$1 https://gith.../issues/nn text\"\n" .
       "See also \"$me, help use\" for creating a list of repositories.\n" .
       "Aliases: comment, note.\n" .
       "Example: note #71: This is related to #70."
