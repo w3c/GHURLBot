@@ -1124,19 +1124,22 @@ sub maybe_expand_references($$$$$)
   $nrefs = 0;
 
   while ($text =~
-    m{(?:\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/issues/([0-9]+)
+    m{(?:(`+).*?\g{-1}
+      |\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/issues/([0-9]+)
       |(?:^|[^a-z0-9._@\#/:-])\K((?:[a-z0-9._-]+(?:/[a-z0-9._-]+)?)?\#[0-9]+)
       |(?:^|[^a-z0-9._@\#/:-])\K(@([\w-]+))
       )(?=\W|$)}xig) {
 
-    if ($5) {			# @name
-      ($ref, $name) = ($5, $6);
-    } elsif ($1) {		# Full URL of an issue
+    if ($1) {			# `...` (literal text, as in MarkDown)
+      next;
+    } elsif ($6) {		# @name
+      ($ref, $name) = ($6, $7);
+    } elsif ($2) {		# Full URL of an issue
       $need_expansion = 0;	# Full URL already given
-      ($repository, $issue, $ref) = ($1, $3, "$2#$3");
+      ($repository, $issue, $ref) = ($2, $4, "$3#$4");
     } else {			# owner/repo#n, repo#n, or #n
       $need_expansion = 1;	# Full URL needs to be printed
-      $ref = $4;
+      $ref = $5;
       ($repository, $issue) = $self->find_repository_for_issue($channel, $ref);
     }
 
@@ -1492,6 +1495,12 @@ sub said($$)
   return if $channel eq 'msg';		# We do not react to private messages
 
   $self->{linenumber}->{$channel}++;
+
+  # Lines like "s/foo/bar/" are probably commands for scribe.perl to
+  # modify an earlier text. We don't look for issues or commands in
+  # such lines, because they are unlikely to be meant for us.
+  return undef
+      if $text =~ /^(?:s|i)(\/|\|)(.*?)\1(.*?)(?:\1([gG])? *)?$/;
 
   return $self->part_channel($channel), undef
       if $addressed && $text =~ /^bye *\.? *$/i;
