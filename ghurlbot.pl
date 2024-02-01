@@ -4,6 +4,10 @@
 # persons and teams on GitHub to full URLs. See the perldoc at the end
 # for how to run it and manual.html for the interaction on IRC.
 #
+#
+# TODO: Allow "repo:...", "repositories:..." (in addition to "gb,
+# use..."). This is the syntax of scribe.perl.
+#
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
