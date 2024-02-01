@@ -929,7 +929,7 @@ sub reopen_issue($$$$)
 sub comment_on_issue_process($$$$$$$)
 {
   my ($body, $self, $channel, $repository, $issuenumber, $comment, $who) = @_;
-  my ($res, $login, $content);
+  my ($res, $login, $content, $owner, $repo, $q, $ref);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
@@ -940,32 +940,93 @@ sub comment_on_issue_process($$$$$$$)
 
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
-  $res = $self->{ua}->post(
-    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
-    Content => encode_json(
-      {body => "Comment by $login via IRC channel $channel on $self->{server}".
-	   "\n\n$comment"}));
+
+  # First find out if the issue number refers an issue, a pull request
+  # or a discussion, and what its ID is.
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i;
+  $q = "query {
+      repository(owner: \"$owner\", name: \"$repo\") {
+	discussion(number: $issuenumber) { id }
+	issue(number: $issuenumber) { id }
+	pullRequest(number: $issuenumber) { id } } }";
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
 
   print STDERR "Channel $channel, add comment to $repository#$issuenumber -> ",
       $res->code, "\n";
 
-  if ($res->code == 403) {
-    print "Cannot add a comment to issue #$issuenumber. Forbidden.\n";
-  } elsif ($res->code == 401) {
-    print "Cannot add a comment. Insufficient or expired authorization.\n";
-  } elsif ($res->code == 404) {
-    print "Cannot add a comment to issue #$issuenumber. Issue not found.\n";
-  } elsif ($res->code == 410) {
-    print "Cannot add a comment to issue #$issuenumber. Issue is gone.\n";
-  } elsif ($res->code == 422) {
-    print "Cannot add a comment to issue #$issuenumber. Validation failed.\n";
-  } elsif ($res->code == 503) {
-    print "Cannot add a comment to issue #$issuenumber. Service unavailable.\n";
-  } elsif ($res->code != 201) {
+  if ($res->code != 200) {
     print "Cannot add a comment to issue #$issuenumber. Error ".$res->code."\n";
+    return;
+  }
+
+  # Now post a mutation using the ID we just got. The API call is
+  # different for issues and discussions.
+  $ref = decode_json($res->decoded_content)->{data}->{repository};
+  $comment =~ s/"/\\"/g;
+  $comment = "Comment by $login via IRC channel $channel on $self->{server}" .
+      "\n\n$comment";
+
+  if (defined $ref->{issue}) {
+    $q = "mutation {
+	addComment(input: {
+	  subjectId: \"$ref->{issue}->{id}\", body: \"$comment\" }) {
+	  commentEdge { node { url } } } }";
+    $res = $self->{ua}->post("https://api.github.com/graphql",
+      Content => encode_json({query => $q}));
+    if ($res->code != 200) {
+      print "Cannot add a comment to issue #$issuenumber. Error ",
+	  $res->code, "\n";
+    } elsif (($ref = decode_json($res->decoded_content)) &&
+      ! defined $ref->{data}->{addComment}) {
+      print "Cannot add a comment to issue #$issuenumber. Error: ",
+	  $ref->{errors}[0]->{message}, "\n";
+    } else {
+      print "Added -> comment ",
+	  $ref->{data}->{addComment}->{commentEdge}->{node}->{url}, "\n";
+    }
+
+  } elsif (defined $ref->{pullRequest}) {
+    $q = "mutation {
+	addComment(input: {
+	  subjectId: \"$ref->{pullRequest}->{id}\", body: \"$comment\" }) {
+	  commentEdge { node { url } } } }";
+    $res = $self->{ua}->post("https://api.github.com/graphql",
+      Content => encode_json({query => $q}));
+    if ($res->code != 200) {
+      print "Cannot add a comment to pull request #$issuenumber. Error ",
+	  $res->code, "\n";
+    } elsif (($ref = decode_json($res->decoded_content)) &&
+      ! defined $ref->{data}->{addComment}) {
+      print "Cannot add a comment to pull request #$issuenumber. Error: ",
+	  $ref->{errors}[0]->{message}, "\n";
+    } else {
+      print "Added -> comment ",
+	  $ref->{data}->{addComment}->{commentEdge}->{node}->{url}, "\n";
+    }
+
+  } elsif (defined $ref->{discussion}) {
+    $q = "mutation {
+	addDiscussionComment(input: {
+	  discussionId: \"$ref->{discussion}->{id}\", body: \"$comment\" }) {
+	  comment { resourcePath } } }";
+    $res = $self->{ua}->post("https://api.github.com/graphql",
+      Content => encode_json({query => $q}));
+    if ($res->code != 200) {
+      print "Cannot add a comment to discussion #$issuenumber. Error ",
+	  $res->code, "\n";
+    } elsif (($ref = decode_json($res->decoded_content)) &&
+      ! defined $ref->{data}->{addDiscussionComment}) {
+      print "Cannot add a comment to discussion #$issuenumber. Error: ",
+	  $ref->{errors}[0]->{message}, "\n";
+    } else {
+      print "Added -> comment https://github.com",
+	  $ref->{data}->{addDiscussionComment}->{comment}->{resourcePath}, "\n";
+    }
+
   } else {
-    $content = decode_json($res->decoded_content);
-    print "Added -> comment $content->{html_url}\n"
+    print "Issue #$issuenumber not found\n";
   }
 }
 
@@ -983,8 +1044,8 @@ sub comment_on_issue($$$$$)
   ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
   return "Sorry, I don't know what repository to use for $issue" if !$issue;
 
-  # Check that it is under "https://github.com/" and then remove that part.
-  $repository =~ s/^https:\/\/github\.com\///i  or
+  # Check that it is under "https://github.com/".
+  $repository =~ /^https:\/\/github\.com\//i or
       return "Cannot add a comment to $repository as it is not on github.com.";
 
   $self->check_and_update_rate($repository) or
@@ -1053,7 +1114,7 @@ sub account_info($$)
 sub get_issue_summary_process($$$$$)
 {
   my ($body, $self, $channel, $repository, $issue) = @_;
-  my ($owner, $repo, $res, $ref, $comment);
+  my ($owner, $repo, $res, $ref, $comment, $d1, $d2, $q);
 
   # This is not a method, but a function that is called by forkit() to
   # run as a background process. It prints text for the channel to
@@ -1074,35 +1135,85 @@ sub get_issue_summary_process($$$$$)
       print STDERR "Channel $channel, info $repository/issues/$issue\n" and
       return;
 
-  $res = $self->{ua}->get(
-    "https://api.github.com/repos/$owner/$repo/issues/$issue");
+  $q = "query {
+      repository(owner: \"$owner\", name: \"$repo\") {
+	discussion(number: $issue) {
+	  title
+	  labels(first: 100) { edges { node { name } } }
+	  closed
+	  author { login } }
+	issue(number: $issue) {
+	  title
+	  labels(first: 100) { edges { node { name } } }
+	  state
+	  author { login }
+	  bodyText
+	  assignees(first: 100) { edges { node { login } } } }
+	pullRequest(number: $issue) {
+	  title
+	  labels(first: 100) { edges { node { name } } }
+	  state
+	  author { login } } } }";
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
+
+  # print STDERR "Query: $q\n";
 
   print STDERR "Channel $channel, info $repository#$issue -> ",$res->code,"\n";
 
-  if ($res->code == 404) {
-    print "$repository/issues/$issue -> Issue $issue [not found]\n";
-    return;
-  } elsif ($res->code == 410) {
-    print "$repository/issues/$issue -> Issue $issue [gone]\n";
-    return;
-  } elsif ($res->code != 200) {	# 401 (wrong auth) or 403 (rate limit)
+  # TODO: What are the possible status codes in reply to a GraphQL call?
+  if ($res->code != 200) {
     print STDERR "  ", $res->decoded_content, "\n";
     print "$repository/issues/$issue -> #$issue\n";
     return;
   }
 
+  # print STDERR "Result: ", $res->decoded_content, "\n";
+
   $ref = decode_json($res->decoded_content);
-  if (grep($_->{name} eq 'action', @{$ref->{labels}})) {
-    $comment = $self->look_for_due_date($ref->{body} // '');
-    print "$repository/issues/$issue -> Action $issue ",
-	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),	"$ref->{title} (on ",
-	join(', ', map($_->{login}, @{$ref->{assignees}})), ")$comment\n";
-  } else {
+  $d1 = $ref->{data}->{repository};
+
+  if (defined $d1->{discussion}) {
+    # It's a discussion.
+    $d2 = $d1->{discussion};
+    print "$repository/discussions/$issue -> ",
+	($d2->{closed} ? 'CLOSED ' : ''),
+	"Discussion $issue $d2->{title} (by $d2->{author}->{login})",
+	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+
+
+  } elsif (defined $d1->{pullRequest}) {
+    # It's a pull request.
+    $d2 = $d1->{pullRequest};
+    print "$repository/pull/$issue -> ",
+	($d2->{state} ne 'OPEN' ? "$d2->{state} " : ''),
+	"Pull Request $issue $d2->{title} (by $d2->{author}->{login})",
+	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+
+  } elsif (defined $d1->{issue} &&
+    grep($_->{node}->{name} eq 'action', @{$d1->{issue}->{labels}->{edges}})) {
+    # It's an issue that is also an action.
+    $d2 = $d1->{issue};
+    $comment = $self->look_for_due_date($d2->{bodyText} // '');
     print "$repository/issues/$issue -> ",
-	($ref->{state} eq 'closed' ? 'CLOSED ' : ''),
-	($ref->{pull_request} ? 'Pull Request' : 'Issue'), " $issue ",
-	"$ref->{title} (by $ref->{user}->{login})",
-	map(" [$_->{name}]", @{$ref->{labels}}), "\n";
+	($d2->{state} eq 'CLOSED' ? 'CLOSED ' : ''),
+	"Action $issue $d2->{title} (on ",
+	join(', ', map($_->{node}->{login}, @{$d2->{assignees}->{edges}})),
+	")$comment\n";
+
+  } elsif (defined $d1->{issue}) {
+    # It's an issue, but not an action.
+    $d2 = $d1->{issue};
+    print "$repository/issues/$issue -> ",
+	($d2->{state} eq 'CLOSED' ? 'CLOSED ' : ''),
+	"Issue $issue $d2->{title} (by $d2->{author}->{login})",
+	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+
+  } else {
+    # No issue, pull request or discussion with this number found.
+    # (The issue may have been deleted, but the GraphQL API doesn't
+    # distinguish between deleted and never created.)
+    print "Issue $issue not found\n";
   }
 }
 
