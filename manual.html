@@ -19,7 +19,8 @@
   <h1>Ghurlbot manual</h1>
 
   <p>Ghurlbot (<b>G</b>it<b>H</b>ub <b>URL</b> ro<b>bot</b>) is an IRC
-    bot that looks up GitHub issues, creates new issues
+    bot that looks up GitHub issues, pull requests or discussions,
+    creates new issues
     and action items, or closes them. It typically has the nickname
     ‘gb’ on IRC, which is what we will use here.</p>
 
@@ -50,7 +51,7 @@
 	    aria#15<br>
 	    #15</code></td>
 	<td><a href="#info">Look up an issue (which may also be a pull
-	    request or an action)</a></td>
+	    request, an action or a discussion)</a></td>
       </tr>
       <tr>
 	<td class=command><code>@joe</code></td>
@@ -86,15 +87,18 @@
       </tr>
       <tr>
 	<td class=command><code>close #15</code></td>
-	<td><a href="#close">Close an issue or action</a></td>
+	<td><a href="#close">Close an issue, action, pull request or
+	discussion</a></td>
       </tr>
       <tr>
 	<td class=command><code>reopen aria/#15</code></td>
-	<td><a href="#reopen">Reopen an issue or action</a></td>
+	<td><a href="#reopen">Reopen an issue, action, pull request or
+	discussion</a></td>
       </tr>
       <tr>
 	<td class=command><code>Note #17 This needs work</code></td>
-	<td><a href="#comment">Add a comment to an issue</a></td>
+	<td><a href="#comment">Add a comment to an issue, action, pull
+	request or discussion</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, list open issues with label foo</code>
@@ -113,7 +117,8 @@
 	<td class=command><code>gb, off<br>
 	gb, on</code></td>
 	<td><a href="#suspend">Stop gb from processing issues,
-	actions and names; or turn it back on</a></td>
+	actions, pull requests, discussions &amp; names; or turn it back
+	on</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, names off<br>
@@ -124,23 +129,24 @@
       <tr>
 	<td class=command><code>gb, issues off<br>
 	gb, issues on</code></td>
-	<td><a href="#suspend">Stop gb from processing issues
-	and actions; or turn it back on</a></td>
+	<td><a href="#suspend">Stop gb from processing issues,
+	actions, pull requests &amp; discussions; or turn it back
+	on</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, delay 20</code></td>
 	<td><a href="#delay">Set the number of lines before gb
-	looks up the same issue or name again</a></td>
+	looks up the same issue number</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, ignore RRSAgent, Zakim</code></td>
-        <td><a href="#ignore">Nicks that cannot open or close issues
-        &amp; actions</a></td>
+        <td><a href="#ignore">Nicks that cannot open or close issues,
+	actions, pull requests &amp; discussions</a></td>
       </tr>
       <tr>
 	<td class=command><code>gb, don't ignore Zakim</code></td>
-        <td><a href="#ignore">Let Zakim open/close issues &amp; actions
-        again</a></td>
+        <td><a href="#ignore">Let Zakim open/close issues, actions,
+	pull requests &amp; discussions again</a></td>
       </tr>
       <tr>
         <td class=command><code>gb, Eve = eve78<br>
@@ -172,7 +178,8 @@
 
   <p>When somebody types something that looks like a repository name
     followed by <code>#</code> and an issue number, gb responds
-    with the full URL of that issue or pull request:</p>
+    with the full URL of that issue, action item, pull request or
+    discussion:</p>
 
   <pre class=command>&lt;joe&gt; Let's talk about foo/bar#13.
 &lt;gb&gt; https://github.com/foo/bar/issues/13 -&gt; #13</pre>
@@ -190,8 +197,9 @@
 
   <p>Gb fails to look up an issue if it does not have access to
     a GitHub account or if the issue is in a private repository,
-    see <a href="#account" >‘GitHub account’</a>. (Gb may also
-    fail due to network problems.)</p>
+    see <a href="#account" >‘GitHub account’</a>. Gb may also
+    fail due to network problems. In these cases the URL is unverified
+    and may be wrong.</p>
 
   <p id=abbreviate>If you have told gb what repositories you are
     discussing
@@ -230,8 +238,9 @@
 
   <h2 id=url>Look up an issue by its URL</h2>
 
-  <p>When gb sees a URL that looks like the URL of an issue on GitHub,
-    it will try to retrieve a summary of that issue from GitHub. E.g.:
+  <p>When gb sees a URL that looks like the URL of an issue, pull
+    request or discussion on GitHub, it will try to retrieve its
+    summary from GitHub. E.g.:
 
     <pre class=command>&lt;joe&gt; topic: https://github.com/w3c/scribe2/issues/15
 &lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston)</pre>
@@ -274,7 +283,8 @@
 
   <h2 id=repo>Specifying the GitHub repository</h2>
 
-  <p>To be able to refer to issues and pull requests with the
+  <p>To be able to refer to issues, actions, pull requests and
+    discussions with the
     abbreviated syntax, you need to say what repository is being
     discussed on this channel:</p>
 
@@ -385,9 +395,10 @@
   <p>Many different ways of describing a date are supported, including
     things like ‘in 2 weeks’, ‘tomorrow’ and ‘next Tuesday’.</p>
 
-  <h2 id=close>Closing an issue or action</h2>
+  <h2 id=close>Closing an issue</h2>
 
-  <p>You can close an issue or action by starting a line
+  <p>You can close an issue, action, pull request or discussion by
+    starting a line
     with <code>close</code>, followed by an issue number or a URL,
     e.g.:</p>
 
@@ -401,9 +412,10 @@
     abbreviation, see <a href="#info" >‘IRC command to link to an
     issue: #’</a>.
 
-  <h2 id=reopen>Reopening an issue or action</h2>
+  <h2 id=reopen>Reopening an issue</h2>
 
-  <p>You can reopen an issue or action by starting a line
+  <p>You can reopen an issue, action, pull request or discussion by
+    starting a line
     with <code>reopen</code>, followed by an issue number or a URL,
     e.g.:</p>
 
@@ -451,7 +463,8 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
 
   <h2 id=comment>Adding a comment to an issue</h2>
 
-  <p>You can add a comment to an existing issue, with
+  <p>You can add a comment to an existing issue, action, pull request
+    or discussion, with
     commands <code>note</code> and <code>comment</code>, like
     this:</p>
 
@@ -549,13 +562,12 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
     the number of lines per second, listing 10 issues already takes
     about 23 seconds.</p>
 
-  <h2 id=ignore>IRC nicks that should not open or close issues &amp;
-    actions</h2>
+  <h2 id=ignore>IRC nicks that should not open or close issues</h2>
 
   <p>Certain IRC bots may print text that looks like an action or an
     issue, but isn't really. E.g., RRSAgent repeats all actions at the
     end of a meeting. To stop such bots from inadvertently opening or
-    closing issues and actions, you can add their name to an ignore
+    closing issues and actions, you can add their names to an ignore
     list:
 
   <pre class=command>&lt;joe&gt; gb, ignore RRSAgent</pre>
@@ -612,7 +624,8 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
 
   <h2 id=suspend>Suspending the bot</h2>
 
-  <p>You can tell the bot to stop processing issues, actions and names
+  <p>You can tell the bot to stop processing issues, actions, pull
+    request, discussion and names
     without dismissing it from the channel; and turn it back on
     again:</p>
 
@@ -629,7 +642,7 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
     or <code>false</code>. And instead of <code>names</code> you can
     also use <code>persons</code> or <code>teams</code>.</p>
 
-  <p>To ask it to stop processing just issues, pull requests and
+  <p>To ask it to stop processing just issues, pull requests, discussions and
     actions, the command is:</p>
 
   <pre class=command>&lt;joe&gt; gb, set issues to off
