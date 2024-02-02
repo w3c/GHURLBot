@@ -861,7 +861,8 @@ sub close_issue($$$$)
 
   # Parse the reference and infer the full repository URL.
   ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
-  return "Sorry, I don't know what repository to use for $text" if !$issue;
+  return "Sorry, I don't know what repository to use for $text"
+      if ! defined $issue;
 
   # Check that it is under "https://github.com/" and then remove that part.
   ($owner, $repo) =
@@ -987,7 +988,8 @@ sub reopen_issue($$$$)
 
   # Parse the reference and infer the full repository URL.
   ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
-  return "Sorry, I don't know what repository to use for $text" if !$issue;
+  return "Sorry, I don't know what repository to use for $text"
+      if ! defined $issue;
 
   # Check that it is under "https://github.com/" and then remove that part.
   ($owner, $repo) =
@@ -1092,7 +1094,8 @@ sub comment_on_issue($$$$$)
 
   # Parse the reference and infer the full repository URL.
   ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
-  return "Sorry, I don't know what repository to use for $issue" if !$issue;
+  return "Sorry, I don't know what repository to use for $issue"
+      if ! defined $issue;
 
   # Check that it is under "https://github.com/" and then remove that part.
   ($owner, $repo) =
@@ -1309,7 +1312,7 @@ sub maybe_expand_references($$$$$)
 
     if ($ref !~ /^@/		# It's a reference to an issue.
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      if (!$issue) {
+      if (! defined $issue) {
 	$self->log("Channel $channel, cannot infer a repository for $ref");
 	$response .= "I don't know which repository to use for $ref\n"
 	    if $addressed;
