@@ -87,7 +87,7 @@ use POE;			# For OBJECT, ARG0 and ARG1
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant HOME => 'https://w3c.github.io/GHURLBot';
-use constant VERSION => '0.3';
+use constant VERSION => '0.4';
 use constant DEFAULT_DELAY => 15;
 use constant DEFAULT_MAXLINES => 10; # Nr. of issues to list in full. ( <= 100)
 my $githubissue =
