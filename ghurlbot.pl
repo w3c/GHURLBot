@@ -549,10 +549,40 @@ sub handle_process_output($$$)
 }
 
 
-# create_action_process -- process that creates an action item on GitHub
-sub create_action_process($$$$$$$)
+# get_github_id_and_type -- get GitHub's ID for an issue/PR/discussion
+sub get_github_id_and_type($$$$$)
 {
-  my ($body, $self, $channel, $repository, $names, $text, $who) = @_;
+  my ($self, $owner, $repo, $issuenumber, $channel) = @_;
+  my ($q, $ref, $res);
+
+  # This function is called from forked processes. It should not
+  # modify anything in $self and should use print for output rather
+  # than $self->say().
+
+  $q = "query {
+      repository(owner: \"$owner\", name: \"$repo\") {
+	discussion(number: $issuenumber) { id }
+	issue(number: $issuenumber) { id }
+	pullRequest(number: $issuenumber) { id } } }";
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
+  print STDERR "Channel $channel, get id of $owner/$repo#$issuenumber -> ",
+      $res->code, "\n";
+  return (undef, undef) if $res->code != 200;
+
+  $ref = decode_json($res->decoded_content)->{data}->{repository};
+
+  return ($ref->{issue}->{id}, 'issue') if defined $ref->{issue};
+  return ($ref->{pullRequest}->{id}, 'pr') if defined $ref->{pullRequest};
+  return ($ref->{discussion}->{id}, 'discussion') if defined $ref->{discussion};
+  return (undef, undef);
+}
+
+
+# create_action_process -- process that creates an action item on GitHub
+sub create_action_process($$$$$$$$)
+{
+  my ($body, $self, $channel, $owner, $repo, $names, $text, $who) = @_;
   my (@names, @labels, $res, $content, $date, $due, $today, $login, $s);
 
   # This is not a method, but a routine that is run as a background
@@ -593,11 +623,11 @@ sub create_action_process($$$$$$$)
   $s = "Opened by $login via IRC channel $channel on $self->{server}\n\n$due";
 
   $res = $self->{ua}->post(
-    "https://api.github.com/repos/$repository/issues",
+    "https://api.github.com/repos/$owner/$repo/issues",
     Content => encode_json({title => $text, assignees => \@names,
 			    body => "$s", labels => ['action']}));
 
-  print STDERR "Channel $channel, new action \"$text\" in $repository -> ",
+  print STDERR "Channel $channel, new action \"$text\" in $owner/$repo -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -605,13 +635,13 @@ sub create_action_process($$$$$$$)
   } elsif ($res->code == 401) {
     print "Cannot create action. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create action. Please, check that I have write access to $repository\n";
+    print "Cannot create action. Please, check that I have write access to $owner/$repo\n";
   } elsif ($res->code == 410) {
-    print "Cannot create action. The repository $repository is gone.\n";
+    print "Cannot create action. The repository $owner/$repo is gone.\n";
   } elsif ($res->code == 422) {
     print "Cannot create action. Validation failed. Maybe ",
 	scalar @names > 1 ? "one of the names" : $names[0],
-	" is not a valid user for $repository?\n";
+	" is not a valid user for $owner/$repo?\n";
   } elsif ($res->code == 503) {
     print "Cannot create action. Service unavailable.\n";
   } elsif ($res->code != 201) {
@@ -624,11 +654,11 @@ sub create_action_process($$$$$$$)
     if (! @{$content->{labels}}) {
       print "I created -> issue #$content->{number} $content->{html_url}\n",
 	  "but I could not add the \"action\" label.\n",
-	  "That probably means I don't have push permission on $repository.\n";
+	  "That probably means I don't have push permission on $owner/$repo.\n";
     } elsif (@names) {		# Some names were not assigned
       print "I created -> action #$content->{number} $content->{html_url}\n",
 	  "but I could not assign it to ", join(", ", @names), "\n",
-	  "They probably aren't collaborators on $repository.\n";
+	  "They probably aren't collaborators on $owner/$repo.\n";
     } else {
       print "Created -> action #$content->{number} $content->{html_url}\n";
     }
@@ -640,7 +670,7 @@ sub create_action_process($$$$$$$)
 sub create_action($$$$)
 {
   my ($self, $channel, $names, $text, $who) = @_;
-  my $repository;
+  my ($repository, $owner, $repo);
 
   return "Sorry, I cannot create actions, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
@@ -648,27 +678,29 @@ sub create_action($$$$)
   # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
-  $repository =~ s/^https:\/\/github\.com\///i or
+
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "Cannot create actions on $repository as it is not on github.com.";
 
   # Check the rate limit.
-  $self->check_and_update_rate($repository) or
+  $self->check_and_update_rate("$owner/$repo") or
       return "Sorry, for security reasons, I won't touch a repository more ".
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. ".
       "Please, try again later.";
 
   $self->forkit(run => \&create_action_process,
     handler => "handle_process_output", channel => $channel,
-    arguments => [$self, $channel, $repository, $names, $text, $who]);
+    arguments => [$self, $channel, $owner, $repo, $names, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
 
 
 # create_issue_process -- process that creates an issue on GitHub
-sub create_issue_process($$$$$)
+sub create_issue_process($$$$$$)
 {
-  my ($body, $self, $channel, $repository, $text, $who) = @_;
+  my ($body, $self, $channel, $owner, $repo, $text, $who) = @_;
   my ($res, $content, $login, $s);
 
   # This is not a method, but a routine that is run as a background
@@ -682,10 +714,10 @@ sub create_issue_process($$$$$)
   $login = '@'.$login if $login ne $who;
   $s = "Opened by $login via IRC channel $channel on $self->{server}";
   $res = $self->{ua}->post(
-    "https://api.github.com/repos/$repository/issues",
+    "https://api.github.com/repos/$owner/$repo/issues",
     Content => encode_json({title => $text, body => $s}));
 
-  print STDERR "Channel $channel, new issue \"$text\" in $repository -> ",
+  print STDERR "Channel $channel, new issue \"$text\" in $owner/$repo -> ",
       $res->code, "\n";
 
   if ($res->code == 403) {
@@ -693,9 +725,9 @@ sub create_issue_process($$$$$)
   } elsif ($res->code == 401) {
     print "Cannot create issue. I have insufficient (or expired) authorization.\n";
   } elsif ($res->code == 404) {
-    print "Cannot create issue.  Please, check that I have write access to $repository.\n";
+    print "Cannot create issue.  Please, check that I have write access to $owner/$repo.\n";
   } elsif ($res->code == 410) {
-    print "Cannot create issue. The repository $repository is gone.\n";
+    print "Cannot create issue. The repository $owner/$repo is gone.\n";
   } elsif ($res->code == 422) {
     print "Cannot create issue. Validation failed.\n";
   } elsif ($res->code == 503) {
@@ -714,7 +746,7 @@ sub create_issue_process($$$$$)
 sub create_issue($$$$)
 {
   my ($self, $channel, $text, $who) = @_;
-  my $repository;
+  my ($repository, $owner, $repo);
 
   return "Sorry, I cannot create issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
@@ -722,28 +754,31 @@ sub create_issue($$$$)
   # Check that this channel has a repository and that it is on GitHub.
   $repository = $self->{repos}->{$channel}->[0] or
       return "Sorry, I don't know what repository to use.";
-  $repository =~ s/^https:\/\/github\.com\///i or
+
+  # Check that it is under "https://github.com/" and then remove that part.
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "Cannot create issues on $repository as it is not on github.com.";
 
   # Check the rate limit.
-  $self->check_and_update_rate($repository) or
+  $self->check_and_update_rate("$owner/$repo") or
       return "Sorry, for security reasons, I won't touch a repository more " .
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
   $self->forkit(run => \&create_issue_process,
     handler => "handle_process_output", channel => $channel,
-    arguments => [$self, $channel, $repository, $text, $who]);
+    arguments => [$self, $channel, $owner, $repo, $text, $who]);
 
   return undef;			# The forked process will print a result
 }
 
 
 # close_issue_process -- process that closes an issue on GitHub
-sub close_issue_process($$$$$$)
+sub close_issue_process($$$$$$$)
 {
-  my ($body, $self, $channel, $repository, $issuenumber, $who) = @_;
-  my ($res, $content, $login);
+  my ($body, $self, $channel, $owner, $repo, $issuenr, $who) = @_;
+  my ($res, $login, $comment, $q, $ref, $data, $url, $err, $id, $type);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
@@ -752,44 +787,66 @@ sub close_issue_process($$$$$$)
   binmode(STDOUT, ":utf8");
   binmode(STDERR, ":utf8");
 
-  # Add a comment saying who closed the issue and then close it.
+  # First get the object ID of the issue/pull-request/discussion with
+  # the given number and find out if it is an issue, a pull request or
+  # a dicussion.
+  ($id, $type) =
+      $self->get_github_id_and_type($owner, $repo, $issuenr, $channel);
+
+  if (! defined $id) {
+    print STDERR "Channel $channel, failed to close $owner/$repo#$issuenr\n";
+    print "Issue #$issuenr not found\n";
+    return;
+  }
+
+  # Add a comment saying who closed the issue.
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
-  $res = $self->{ua}->post(
-    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
-    Content => encode_json(
-      {body=>"Closed by $login via IRC channel $channel on $self->{server}"}));
-  if ($res->code == 201) {
-    $res = $self->{ua}->patch(
-      "https://api.github.com/repos/$repository/issues/$issuenumber",
-      Content => encode_json({state => 'closed'}));
+  $comment = "Closed by $login via IRC channel $channel on $self->{server}";
+
+  # Different types need different GraphQL queries. The result has the
+  # same structure, however, thanks to the aliases ("close:",
+  # "item:").
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	commentEdge { node { url } } }
+      close: closeIssue(input: { issueId: \"$id\" }) {
+	item: issue { url } } }" if $type eq 'issue';
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	commentEdge { node { url } } }
+      close: closePullRequest(input: { pullRequestId: \"$id\" }) {
+	item: pullRequest { url } } }" if $type eq 'pr';
+  $q = "mutation {
+      addDiscussionComment(input: {discussionId: \"$id\", body: \"$comment\" }){
+	comment { resourcePath } }
+      close: closeDiscussion(input: { discussionId: \"$id\" }) {
+	item: discussion { url } } }" if $type eq 'discussion';
+
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
+  if ($res->code != 200) {
+    print STDERR "Channel $channel, cannot close $owner/$repo#$issuenr -> ",
+	$res->code, "\n";
+    print "Cannot close $type #$issuenr. Error ", $res->code, "\n";
+    return;
   }
 
-  print STDERR "Channel $channel, close $repository#$issuenumber -> ",
-      $res->code, "\n";
+  $ref = decode_json($res->decoded_content);
+  $err = $ref->{errors};
+  $data = $ref->{data};
 
-  if ($res->code == 403) {
-    print "Cannot close issue #$issuenumber. Forbidden.\n";
-  } elsif ($res->code == 401) {
-    print "Cannot close issue. I have insufficient (or expired) authorization.\n";
-  } elsif ($res->code == 404) {
-    print "Cannot close issue #$issuenumber. Issue not found.\n";
-  } elsif ($res->code == 410) {
-    print "Cannot close issue #$issuenumber. Issue is gone.\n";
-  } elsif ($res->code == 422) {
-    print "Cannot close issue #$issuenumber. Validation failed.\n";
-  } elsif ($res->code == 503) {
-    print "Cannot close issue #$issuenumber. Service unavailable.\n";
-  } elsif ($res->code != 200) {
-    print "Cannot close issue #$issuenumber. Error ".$res->code."\n";
-  } else {
-    $content = decode_json($res->decoded_content);
-    if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      print "Closed -> action #$content->{number} $content->{html_url}\n";
-    } else {
-      print "Closed -> issue #$content->{number} $content->{html_url}\n";
-    }
+  if (! defined $data->{close}) {
+    print STDERR "Channel $channel, cannot close $owner/$repo#$issuenr",
+	" -> $err->[0]->{message}\n";
+    print "Cannot close $type #$issuenr -> $err->[0]->{message}\n";
+    return;
   }
+
+  $url = $data->{close}->{item}->{url};
+
+  print STDERR "Channel $channel, closed $type $owner/$repo#$issuenr\n";
+  print "Closed -> $type #$issuenr $url\n";
 }
 
 
@@ -797,7 +854,7 @@ sub close_issue_process($$$$$$)
 sub close_issue($$$$)
 {
   my ($self, $channel, $text, $who) = @_;
-  my ($repository, $issue);
+  my ($repository, $issue, $owner, $repo);
 
   return "Sorry, I cannot close issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
@@ -807,17 +864,19 @@ sub close_issue($$$$)
   return "Sorry, I don't know what repository to use for $text" if !$issue;
 
   # Check that it is under "https://github.com/" and then remove that part.
-  $repository =~ s/^https:\/\/github\.com\///i or
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "Cannot close issues on $repository as it is not on github.com.";
 
-  $self->check_and_update_rate($repository) or
+  # Check the rate limit.
+  $self->check_and_update_rate("$owner/$repo") or
       return "Sorry, for security reasons, I won't touch a repository more " .
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
   $self->forkit(run => \&close_issue_process,
     handler => "handle_process_output", channel => $channel,
-    arguments => [$self, $channel, $repository, $issue, $who]);
+    arguments => [$self, $channel, $owner, $repo, $issue, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -841,10 +900,10 @@ sub look_for_due_date($$)
 
 
 # reopen_issue_process -- process that reopens an issue on GitHub
-sub reopen_issue_process($$$$$)
+sub reopen_issue_process($$$$$$)
 {
-  my ($body, $self, $channel, $repository, $issuenumber, $who) = @_;
-  my ($res, $content, $comment, $login);
+  my ($body, $self, $channel, $owner, $repo, $issuenr, $who) = @_;
+  my ($res, $comment, $login, $q, $ref, $err, $data, $url, $title, $id, $type);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
@@ -853,49 +912,67 @@ sub reopen_issue_process($$$$$)
   binmode(STDOUT, ":utf8");
   binmode(STDERR, ":utf8");
 
-  # Reopen and add a comment saying who reopened the issue.
+  # First get the object ID of the issue/pull-request/discussion with
+  # the given number and find out if it is an issue, a pull request or
+  # a dicussion.
+  ($id, $type) =
+      $self->get_github_id_and_type($owner, $repo, $issuenr, $channel);
+
+  if (! defined $id) {
+    print STDERR "Channel $channel, failed to reopen $owner/$repo#$issuenr\n";
+    print "Issue #$issuenr not found\n";
+    return;
+  }
+
+  # Add a comment saying who reopend the issue.
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
-  $res = $self->{ua}->post(
-    "https://api.github.com/repos/$repository/issues/$issuenumber/comments",
-    Content => encode_json(
-      {body=>"Reopened by $login via IRC channel $channel on $self->{server}"}));
-  if ($res->code == 201) {
-    $res = $self->{ua}->patch(
-      "https://api.github.com/repos/$repository/issues/$issuenumber",
-      Content => encode_json({state => 'open'}));
+  $comment = "Reopened by $login via IRC channel $channel on $self->{server}";
+
+  # Different types need different GraphQL queries. The three queries
+  # return the same structure, because the objects are given aliases
+  # ("reopen:" and "item:").
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	__typename }
+      reopen: reopenIssue(input: { issueId: \"$id\" }) {
+	item: issue { url title } } }" if $type eq 'issue';
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	__typename }
+      reopen: reopenPullRequest(input: { pullRequestId: \"$id\" }) {
+	item: pullRequest { url title } } }" if $type eq 'pr';
+  $q = "mutation {
+      addDiscussionComment(input: {discussionId: \"$id\", body: \"$comment\" }){
+	__typename }
+      reopen: reopenDiscussion(input: { discussionId: \"$id\" }) {
+	item: discussion { url title } } }" if $type eq 'discussion';
+
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
+  if ($res->code != 200) {
+    print STDERR "Channel $channel, cannot reopen $owner/$repo#$issuenr -> ",
+	$res->code, "\n";
+    print "Cannot reopen $type #$issuenr. Error ", $res->code, "\n";
+    return;
   }
 
-  print STDERR "Channel $channel, reopen $repository#$issuenumber -> ",
-      $res->code, "\n";
+  $ref = decode_json($res->decoded_content);
+  $err = $ref->{errors};
+  $data = $ref->{data};
 
-  if ($res->code == 403) {
-    print "Cannot reopen issue #$issuenumber. Forbidden.\n";
-  } elsif ($res->code == 401) {
-    print "Cannot reopen issue. Insufficient or expired authorization.\n";
-  } elsif ($res->code == 404) {
-    print "Cannot reopen issue #$issuenumber. Issue not found.\n";
-  } elsif ($res->code == 410) {
-    print "Cannot reopen issue #$issuenumber. Issue is gone.\n";
-  } elsif ($res->code == 422) {
-    print "Cannot reopen issue #$issuenumber. Validation failed.\n";
-  } elsif ($res->code == 503) {
-    print "Cannot reopen issue #$issuenumber. Service unavailable.\n";
-  } elsif ($res->code != 200) {
-    print "Cannot reopen issue #$issuenumber. Error ".$res->code."\n";
-  } else {
-    $content = decode_json($res->decoded_content);
-    if (grep($_->{name} eq 'action', @{$content->{labels}})) {
-      $comment = $self->look_for_due_date($content->{body} // '');
-      print "Reopened -> action #$content->{number} $content->{html_url} ",
-	  "$content->{title} (on ",
-	  join(', ', map($_->{login}, @{$content->{assignees}})),
-	  ")$comment\n";
-    } else {
-      print "Reopened -> issue #$content->{number} $content->{html_url} ",
-	  "$content->{title}\n";
-    }
+  if (! defined $data->{reopen}) {
+    print STDERR "Channel $channel, cannot reopen $owner/$repo#$issuenr",
+	" -> $err->[0]->{message}\n";
+    print "Cannot reopen $type #$issuenr -> $err->[0]->{message}\n";
+    return;
   }
+
+  $url = $data->{reopen}->{item}->{url};
+  $title = $data->{reopen}->{item}->{title};
+
+  print STDERR "Channel $channel, reopened $type $owner/$repo#$issuenr\n";
+  print "Reopened -> $type #$issuenr $url $title\n";
 }
 
 
@@ -903,7 +980,7 @@ sub reopen_issue_process($$$$$)
 sub reopen_issue($$$$)
 {
   my ($self, $channel, $text, $who) = @_;
-  my ($repository, $issue);
+  my ($repository, $issue, $owner, $repo);
 
   return "Sorry, I cannot open issues, because I am running without " .
       "an access token for GitHub." if !defined $self->{github_api_token};
@@ -913,27 +990,28 @@ sub reopen_issue($$$$)
   return "Sorry, I don't know what repository to use for $text" if !$issue;
 
   # Check that it is under "https://github.com/" and then remove that part.
-  $repository =~ s/^https:\/\/github\.com\///i  or
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "Cannot open issues on $repository as it is not on github.com.";
 
-  $self->check_and_update_rate($repository) or
+  $self->check_and_update_rate("$owner/$repo") or
       return "Sorry, for security reasons, I won't touch a repository more " .
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
   $self->forkit(run => \&reopen_issue_process,
     handler => "handle_process_output", channel => $channel,
-    arguments => [$self, $channel, $repository, $issue, $who]);
+    arguments => [$self, $channel, $owner, $repo, $issue, $who]);
 
   return undef;			# The forked process will print a result
 }
 
 
 # comment_on_issue_process -- process that adds a comment to an issue on GitHub
-sub comment_on_issue_process($$$$$$$)
+sub comment_on_issue_process($$$$$$$$)
 {
-  my ($body, $self, $channel, $repository, $issuenumber, $comment, $who) = @_;
-  my ($res, $login, $content, $owner, $repo, $q, $ref);
+  my ($body, $self, $channel, $owner, $repo, $issue, $comment, $who) = @_;
+  my ($res, $login, $q, $ref, $err, $data, $id, $type, $url);
 
   # This is not a method, but a routine that is run as a background
   # process by create_issue(). Output to STDERR is meant for the log.
@@ -945,93 +1023,61 @@ sub comment_on_issue_process($$$$$$$)
   $login = $self->name_to_login($who);
   $login = '@'.$login if $login ne $who;
 
-  # First find out if the issue number refers an issue, a pull request
-  # or a discussion, and what its ID is.
-  ($owner, $repo) =
-      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i;
-  $q = "query {
-      repository(owner: \"$owner\", name: \"$repo\") {
-	discussion(number: $issuenumber) { id }
-	issue(number: $issuenumber) { id }
-	pullRequest(number: $issuenumber) { id } } }";
-  $res = $self->{ua}->post("https://api.github.com/graphql",
-    Content => encode_json({query => $q}));
-
-  print STDERR "Channel $channel, add comment to $repository#$issuenumber -> ",
-      $res->code, "\n";
-
-  if ($res->code != 200) {
-    print "Cannot add a comment to issue #$issuenumber. Error ".$res->code."\n";
-    return;
-  }
-
-  # Now post a mutation using the ID we just got. The API call is
-  # different for issues and discussions.
-  $ref = decode_json($res->decoded_content)->{data}->{repository};
   $comment =~ s/"/\\"/g;
   $comment = "Comment by $login via IRC channel $channel on $self->{server}" .
       "\n\n$comment";
 
-  if (defined $ref->{issue}) {
-    $q = "mutation {
-	addComment(input: {
-	  subjectId: \"$ref->{issue}->{id}\", body: \"$comment\" }) {
-	  commentEdge { node { url } } } }";
-    $res = $self->{ua}->post("https://api.github.com/graphql",
-      Content => encode_json({query => $q}));
-    if ($res->code != 200) {
-      print "Cannot add a comment to issue #$issuenumber. Error ",
-	  $res->code, "\n";
-    } elsif (($ref = decode_json($res->decoded_content)) &&
-      ! defined $ref->{data}->{addComment}) {
-      print "Cannot add a comment to issue #$issuenumber. Error: ",
-	  $ref->{errors}[0]->{message}, "\n";
-    } else {
-      print "Added -> comment ",
-	  $ref->{data}->{addComment}->{commentEdge}->{node}->{url}, "\n";
-    }
+  # First find out if the issue number refers an issue, a pull request
+  # or a discussion, and what its ID is.
+  ($id, $type) =
+      $self->get_github_id_and_type($owner, $repo, $issue, $channel);
 
-  } elsif (defined $ref->{pullRequest}) {
-    $q = "mutation {
-	addComment(input: {
-	  subjectId: \"$ref->{pullRequest}->{id}\", body: \"$comment\" }) {
-	  commentEdge { node { url } } } }";
-    $res = $self->{ua}->post("https://api.github.com/graphql",
-      Content => encode_json({query => $q}));
-    if ($res->code != 200) {
-      print "Cannot add a comment to pull request #$issuenumber. Error ",
-	  $res->code, "\n";
-    } elsif (($ref = decode_json($res->decoded_content)) &&
-      ! defined $ref->{data}->{addComment}) {
-      print "Cannot add a comment to pull request #$issuenumber. Error: ",
-	  $ref->{errors}[0]->{message}, "\n";
-    } else {
-      print "Added -> comment ",
-	  $ref->{data}->{addComment}->{commentEdge}->{node}->{url}, "\n";
-    }
-
-  } elsif (defined $ref->{discussion}) {
-    $q = "mutation {
-	addDiscussionComment(input: {
-	  discussionId: \"$ref->{discussion}->{id}\", body: \"$comment\" }) {
-	  comment { resourcePath } } }";
-    $res = $self->{ua}->post("https://api.github.com/graphql",
-      Content => encode_json({query => $q}));
-    if ($res->code != 200) {
-      print "Cannot add a comment to discussion #$issuenumber. Error ",
-	  $res->code, "\n";
-    } elsif (($ref = decode_json($res->decoded_content)) &&
-      ! defined $ref->{data}->{addDiscussionComment}) {
-      print "Cannot add a comment to discussion #$issuenumber. Error: ",
-	  $ref->{errors}[0]->{message}, "\n";
-    } else {
-      print "Added -> comment https://github.com",
-	  $ref->{data}->{addDiscussionComment}->{comment}->{resourcePath}, "\n";
-    }
-
-  } else {
-    print "Issue #$issuenumber not found\n";
+  if (! defined $id) {
+    print STDERR "Channel $channel, failed to find $owner/$repo#$issue\n";
+    print "Issue #$issue not found\n";
+    return;
   }
+
+  # Different types need different GraphQL queries.
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	commentEdge { node { url } } } }" if $type eq 'issue';
+  $q = "mutation {
+      addComment(input: { subjectId: \"$id\", body: \"$comment\" }) {
+	commentEdge { node { url } } } }" if $type eq 'pr';
+  $q = "mutation {
+      addDiscussionComment(input: {discussionId: \"$id\", body: \"$comment\" }){
+	comment { url } } }" if $type eq 'discussion';
+
+  $res = $self->{ua}->post("https://api.github.com/graphql",
+    Content => encode_json({query => $q}));
+  if ($res->code != 200) {
+    print STDERR "Channel $channel, cannot add comment to $owner/$repo#$issue",
+	" -> ", $res->code, "\n";
+    print "Cannot add a comment to $type #$issue. Error ", $res->code, "\n";
+    return;
+  }
+
+  $ref = decode_json($res->decoded_content);
+  $err = $ref->{errors};
+  $data = $ref->{data};
+
+  if (! defined $data->{addComment} &&
+    ! defined $data->{addComment} &&
+    ! defined $data->{addDiscussionComment}) {
+    print STDERR "Channel $channel, cannot add comment to $owner/$repo#$issue",
+	" -> $err->[0]->{message}\n";
+    print "Cannot add a comment to $type #$issue -> $err->[0]->{message}\n";
+    return;
+  }
+
+  $url = $type eq 'issue' ? $data->{addComment}->{commentEdge}->{node}->{url} :
+      $type eq 'pr' ? $data->{addComment}->{commentEdge}->{node}->{url} :
+      'https://github.com' .
+      $data->{addDiscussionComment}->{comment}->{resourcePath};
+
+  print STDERR "Channel $channel, added comment -> $url\n";
+  print "Added -> comment $url\n";
 }
 
 
@@ -1039,7 +1085,7 @@ sub comment_on_issue_process($$$$$$$)
 sub comment_on_issue($$$$$)
 {
   my ($self, $channel, $text, $comment, $who) = @_;
-  my ($repository, $issue);
+  my ($repository, $issue, $owner, $repo);
 
   return "Sorry, I cannot add comments to issues, because I am running with" .
       "out an access token for GitHub." if !defined $self->{github_api_token};
@@ -1048,18 +1094,19 @@ sub comment_on_issue($$$$$)
   ($repository, $issue) = $self->find_repository_for_issue($channel, $text);
   return "Sorry, I don't know what repository to use for $issue" if !$issue;
 
-  # Check that it is under "https://github.com/".
-  $repository =~ /^https:\/\/github\.com\//i or
+  # Check that it is under "https://github.com/" and then remove that part.
+  ($owner, $repo) =
+      $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
       return "Cannot add a comment to $repository as it is not on github.com.";
 
-  $self->check_and_update_rate($repository) or
+  $self->check_and_update_rate("$owner/$repo") or
       return "Sorry, for security reasons, I won't touch a repository more " .
       "than ".MAXRATE." times in ".RATEPERIOD." minutes. " .
       "Please, try again later.";
 
   $self->forkit(run => \&comment_on_issue_process,
     handler => "handle_process_output", channel => $channel,
-    arguments => [$self, $channel, $repository, $issue, $comment, $who]);
+    arguments => [$self, $channel, $owner, $repo, $issue, $comment, $who]);
 
   return undef;			# The forked process will print a result
 }
@@ -1240,7 +1287,7 @@ sub maybe_expand_references($$$$$)
 
   while ($text =~
     m{(?:(`+).*?\g{-1}
-      |\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/issues/([0-9]+)
+      |\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/(?:issues|pull|discussions)/([0-9]+)
       |(?:^|[^a-z0-9._@\#/:-])\K((?:[a-z0-9._-]+(?:/[a-z0-9._-]+)?)?\#[0-9]+)
       |(?:^|[^a-z0-9._@\#/:-])\K(@([\w-]+))
       )(?=\W|$)}xig) {
