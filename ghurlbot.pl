@@ -1708,22 +1708,24 @@ sub said($$)
       if ($addressed || $do_issues) &&
       ($text =~ /^close +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
 	$text =~ /^close +($githubissue)(?=\W|$)/i ||
-	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed(?: *\.)?$/i ||
-	$text =~ /^($githubissue) +closed(?: *\.)?$/i) &&
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +closed?(?: *\.)?$/i ||
+	$text =~ /^($githubissue) +closed?(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->reopen_issue($channel, $1, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^reopen +([a-zA-Z0-9\/._-]*#[0-9]+)(?=\W|$)/i ||
 	$text =~ /^reopen +($githubissue)(?=\W|$)/i ||
-	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopened(?: *\.)?$/i ||
-	$text =~ /^($githubissue) +reopened(?: *\.)?$/i) &&
+	$text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +reopen(?:ed)?(?: *\.)?$/i ||
+	$text =~ /^($githubissue) +reopen(?:ed)?(?: *\.)?$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->comment_on_issue($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^(?:note|comment) +(?:on +)?([a-zA-Z0-9\/._-]*#[0-9]+) *:? *(.*)/i ||
-	$text =~ /^(?:note|comment) +(?:on +)?($githubissue) *:? *(.*)/i) &&
+       $text =~ /^(?:note|comment) +(?:on +)?($githubissue) *:? *(.*)/i ||
+       $text =~ /^([a-zA-Z0-9\/._-]*#[0-9]+) +(?:note|comment) *:? *(.*)/i ||
+       $text =~ /^($githubissue) +(?:note|comment) *:? *(.*)/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->create_action($channel, $1, $2, $who)
@@ -1772,7 +1774,7 @@ sub help($$)
   my $text = $info->{body};		# What Nick said
 
   return
-      "for help on commands, try \"$me, help x\",\n" .
+      "for help on commands, try \x02$me, help x\x02,\n" .
       "where x is one of:\n" .
       "#, @, use, discussing, discuss, using, take up, taking up,\n" .
       "this will be, this is, repo, repos, repository, repositories,\n" .
@@ -1780,65 +1782,65 @@ sub help($$)
       "delay, status, on, off, issues, names, persons, teams, invite,\n" .
       "list, search, find, get, look up, next, is, =, ignore,\n" .
       "don't ignore, do not ignore, close, reopen, comment, note,\n" .
-      "auth me, authenticate me, forget me, bye.  Example: $me, help #"
+      "auth me, authenticate me, forget me, bye.  Example: \x02$me, help #\x02"
       if $text =~ /\bcommands\b/i;
 
   return
-      "the command \"$me, $1\" stops me from accessing GitHub\n" .
-      "for you. See also \"$me, help auth me\" to enable access again.\n" .
+      "the command \x02$me, $1\x02 stops me from accessing GitHub\n" .
+      "for you. See also \x02$me, help auth me\x02 to enable access again.\n" .
       "Example: $me, forget me"
       if $text =~ /\b(forget +me)\b/i;
 
   return
-      "the command \"$me, $1\" associates you with\n" .
+      "the command \x02$me, $1\x02 associates you with\n" .
       "a GitHub account and allows me to access GitHub for you.\n" .
       "I'll give you a one-time code (in a private message) to enter\n" .
       "on https://github.com/login/device\n" .
-      "See also \"$me, help forget me\"\n" .
+      "See also \x02$me, help forget me\x02\n" .
       "Aliases: auth me, authenticate me. Example: $me, auth me"
       if $text =~ /\b(auth +me|authenticate +me)\b/i;
 
   return
-      "when I see \"xxx/yyy#nn\" or \"yyy#nn\" or \"#nn\" (where nn is\n" .
+      "when I see \x02xxx/yyy#nn\x02 or \x02yyy#nn\x02 or \x02#nn\x02 (where nn is\n" .
       "an issue number, yyy the name of a GitHub repository and xxx\n" .
       "the name of a repository owner), I will print the URL to that\n" .
       "issue and try to retrieve a summary.\n" .
-      "See also \"$me, help use\" for setting the default repositories.\n" .
+      "See also \x02$me, help use\x02 for setting the default repositories.\n" .
       "Example: #1"
       if $text =~ /#/;
 
   return
-      "when I see \"\@abc\" (where abc is any name), I will print\n" .
+      "when I see \x02\@abc\x02 (where abc is any name), I will print\n" .
       "the URL of the user or team of that name on GitHub.\n" .
       "Example: \@w3c"
       if $text =~ /@/;
 
   return
-      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\" adds\n" .
+      "the command \x02$me, $1 xxx/yyy\x02 or \x02$me, $1 yyy\x02 adds\n" .
       "repository xxx/yyy to my list of known repositories and makes it\n" .
       "the default. If you create issues and action items, they will be\n" .
       "created in this repository. If you omit xxx, it will be copied\n" .
-      "from the next repository in my list, or \"w3c\" if there is\n" .
+      "from the next repository in my list, or \x02w3c\x02 if there is\n" .
       "none. You can give more than one repository, separated by commas\n" .
       "or spaces. Aliases: use, discussing, discuss, using, take up\n" .
       "taking up, this will be, this is.\n" .
-      "See also \"$me, help repo\". Example: $me, $1 w3c/rdf-star"
+      "See also \x02$me, help repo\x02. Example: $me, $1 w3c/rdf-star"
       if $text =~ /\b(use|discussing|discuss|using|take +up|taking +up|this +will +be|this +is)\b/i;
 
   return
-      "the command \"$1: xxx/yyy\" or \"$1: yyy\" adds repository\n" .
+      "the command \x02$1: xxx/yyy\x02 or \x02$1: yyy\x02 adds repository\n" .
       "xxx/yyy to my list of known repositories and makes it the\n" .
       "default. If you create issues and action items, they will be\n" .
       "created in this repository. If you omit xxx, it will be the copied\n" .
-      "from the next repository in my list, or \"w3c\" if there is none.\n" .
+      "from the next repository in my list, or \x02w3c\x02 if there is none.\n" .
       "You can give more than one repository. Use commas or\n" .
       "spaces to separate them. Aliases: repo, repos, repository,\n" .
-      "repositories. See also \"$me, help use\".\n" .
+      "repositories. See also \x02$me, help use\x02.\n" .
       "Example: $1: w3c/rdf-star"
       if $text =~ /\b(repo|repos|repository|repositories)\b/i;
 
   return
-      "the command \"$me, $1 xxx/yyy\" or \"$me, $1 yyy\"\n" .
+      "the command \x02$me, $1 xxx/yyy\x02 or \x02$me, $1 yyy\x02\n" .
       "removes repository xxx/yyy from my list of known\n" .
       "repositories. If you omit xxx, I remove the first in the list\n" .
       "whose name is xxx. If the removed repository was the default,\n" .
@@ -1847,170 +1849,172 @@ sub help($$)
       if $text =~ /\b(forget|drop|remove|don't +use|do +not +use)\b/i;
 
   return
-      "the command \"issue: ...\" creates a new issue in the default\n" .
-      "repository on GitHub. See \"$me, help use\" for how to set\n" .
+      "the command \x02issue: ...\x02 creates a new issue in the default\n" .
+      "repository on GitHub. See \x02$me, help use\x02 for how to set\n" .
       "the default repository. Example: issue: Section 1.1 is wrong"
       if $text =~ /\bissue\b/i;
 
   return
-      "the command \"action: john to ...\" or \"action john: ...\"\n" .
+      "the command \x02action: john to ...\x02 or \x02action john: ...\x02\n" .
       "creates an action item (in fact, an issue with an assignee and\n" .
       "a due date) in the default repository on GitHub. You can\n" .
       "Separate multiple assignees with commas. If you end the\n" .
-      "text with \"due\" and a date, the due date will be that date.\n" .
+      "text with \x02due\x02 and a date, the due date will be that date.\n" .
       "Otherwise the due date will be one week after today.\n" .
-      "The date can be specified in many ways, such as \"Apr 2\" and\n" .
-      "\"next Thursday\". See \"$me, help use\" for how to set the\n" .
-      "default repository. See \"$me, help is\" for defining aliases\n" .
+      "The date can be specified in many ways, such as \x02Apr 2\x02 and\n" .
+      "\x02next Thursday\x02. See \x02$me, help use\x02 for how to set the\n" .
+      "default repository. See \x02$me, help is\x02 for defining aliases\n" .
       "for usernames.\n" .
       "Example: action john, kylie: solve #1 due in 2 weeks"
       if $text =~ /\baction\b/i;
 
   return
-      "\"set\" is used to set certain parameters, see\n" .
-      "\"$me, help delay\", \"$me, help issues\" and\n" .
-      "\"$me, help names\"."
+      "\x02set\x02 is used to set certain parameters, see\n" .
+      "\x02$me, help delay\x02, \x02$me, help issues\x02 and\n" .
+      "\x02$me, help names\x02."
       if $text =~ /\bset\b/i;
 
   return
       "normally, I will not look up an issue on GitHub if I\n" .
       "already did it less than 15 lines ago. The command\n" .
-      "\"$me, delay nn\", or \"$me, delay = nn\", or\n" .
-      "\"$me, set delay nn\" or \"$me, set delay to nn\"\n" .
+      "\x02$me, delay nn\x02, or \x02$me, delay = nn\x02, or\n" .
+      "\x02$me, set delay nn\x02 or \x02$me, set delay to nn\x02\n" .
       "changes the number of lines from 15 to nn.\n" .
       "Example: $me, delay 0"
       if $text =~ /\bdelay\b/i;
 
   return
-      "if you say \"$me, status\" or \"$me, status?\" I will print\n" .
+      "if you say \x02$me, status\x02 or \x02$me, status?\x02 I will print\n" .
       "my current list of repositories, the current delay, whether I'm\n" .
       "looking up issues, and which IRC users I'm ignoring.\n" .
       "Example: $me, status?"
       if $text =~ /\bstatus\b/i;
 
   return
-      "the command \"$me, on\" tells me to start creating and\n" .
+      "the command \x02$me, on\x02 tells me to start creating and\n" .
       "looking up issues on GitHub again and to show URLs for\n" .
       "GitHub user names, if I was previously told to stop doing so\n" .
-      "with \"$me, off\". See also \"$me, help issues\" and\n" .
-      "\"$me, help names\"."
+      "with \x02$me, off\x02. See also \x02$me, help issues\x02 and\n" .
+      "\x02$me, help names\x02."
       if $text =~ /\bon\b/i;
 
   return
-      "the command \"$me, off\" tells me to stop creating and\n" .
+      "the command \x02$me, off\x02 tells me to stop creating and\n" .
       "looking up issues on GitHub and to stop showing URLs for\n" .
-      "GitHub user names. Use \"$me, on\" to tell me to start again.\n" .
-      "See also \"$me, help issues\" and \"$me, help names\"."
+      "GitHub user names. Use \x02$me, on\x02 to tell me to start again.\n" .
+      "See also \x02$me, help issues\x02 and \x02$me, help names\x02."
       if $text =~ /\boff\b/i;
 
   return
-      "the command \"$me, issues off\" or \"$me, issues = off\"\n" .
-      "or \"$me, set issues off\" or \"$me, set issues to off\"\n" .
+      "the command \x02$me, issues off\x02 or \x02$me, issues = off\x02\n" .
+      "or \x02$me, set issues off\x02 or \x02$me, set issues to off\x02\n" .
       "tells me to stop creating and looking up issues on GitHub.\n" .
-      "The same with \"on\" instead of \"off\" tells me to start again.\n" .
-      "See also \"$me, help on\", \"$me, help off\" and\n" .
-      "\"$me, help names\"."
+      "The same with \x02on\x02 instead of \x02off\x02 tells me to start again.\n" .
+      "See also \x02$me, help on\x02, \x02$me, help off\x02 and\n" .
+      "\x02$me, help names\x02."
       if $text =~ /\bissues\b/i;
 
   return
-      "the command \"$me, $1 off\" or\n" .
-      "\"$me, $1 = off\" or \"$me, set $1 off\" or\n" .
-      "\"$me, set $1 to off\" tells me to stop showing URLs for\n" .
-      "GitHub user names (such as \"\@w3c\"). Replace \"off\"\n" .
-      "by \"on\" to tell me to start again. See also\n" .
-      "\"$me, help on\", \"$me, help off\" and \"$me, help issues\"."
+      "the command \x02$me, $1 off\x02 or\n" .
+      "\x02$me, $1 = off\x02 or \x02$me, set $1 off\x02 or\n" .
+      "\x02$me, set $1 to off\x02 tells me to stop showing URLs for\n" .
+      "GitHub user names (such as \x02\@w3c\x02). Replace \x02off\x02\n" .
+      "by \x02on\x02 to tell me to start again. See also\n" .
+      "\x02$me, help on\x02, \x02$me, help off\x02 and \x02$me, help issues\x02."
       if $text =~ /\b(names|persons|teams)\b/i;
 
   return
-      "the command \"/invite $me\" (note the \"/\") invites me\n" .
-      "to join this channel. See also \"$me, bye\" for how to\n" .
+      "the command \x02/invite $me\x02 (note the \x02/\x02) invites me\n" .
+      "to join this channel. See also \x02$me, bye\x02 for how to\n" .
       "dismiss me from the channel."
       if $text =~ /\binvite\b/i;
 
   return
-      "the command \"$me, aaa $1 bbb\" defines that aaa is\n" .
+      "the command \x02$me, aaa $1 bbb\x02 defines that aaa is\n" .
       "an alias for the person with the username bbb on GitHub.\n" .
-      "You can add \"@\" in front of the GitHub username, if you wish.\n" .
+      "You can add \x02@\x02 in front of the GitHub username, if you wish.\n" .
       "Typically this command serves to define an equivalence\n" .
       "between an IRC nickname and a GitHub username, so that\n" .
-      "you can say \"action aaa:...\", where aaa is an IRC nick.\n" .
+      "you can say \x02action aaa:...\x02, where aaa is an IRC nick.\n" .
       "Aliases: is, =. Example: $me, denis $1 \@deniak"
       if $text =~ /(\bis\b|=)/i;
 
   return
-      "the command \"$me, $1 aaa\" tells me to stop\n" .
+      "the command \x02$me, $1 aaa\x02 tells me to stop\n" .
       "ignoring messages on IRC from user aaa.\n" .
-      "See also \"$me, help ignore\".\n" .
+      "See also \x02$me, help ignore\x02.\n" .
       "Example: $me, $1 agendabot"
       if $text =~ /\b(don't +ignore|do +not +ignore)\b/i;
 
   return
-      "the command \"$me, ignore aaa\" tells me to ignore\n" .
+      "the command \x02$me, ignore aaa\x02 tells me to ignore\n" .
       "messages on IRC from user aaa.\n" .
-      "See also \"$me, help don't ignore\".\n" .
+      "See also \x02$me, help don't ignore\x02.\n" .
       "Example: $me, ignore rrsagent"
       if $text =~ /\bignore\b/i;
 
   return
-      "the command \"close #nn\" or \"close yyy#nn\" or\n" .
-      "\"close xxx/yyy#nn\" tells me to close GitHub issue number nn\n" .
-      "in repository xxx/yyy. If you omit xxx or xxx/yyy, I will find\n" .
+      "the command \x02close #nn\x02 or \x02close yyy#nn\x02 or\n" .
+      "\x02close xxx/yyy#nn\x02 or \x02yyy#nnn close\x02 tells me to close\n" .
+      "GitHub issue number nn in repository xxx/yyy.\n" .
+      "If you omit xxx or xxx/yyy, I will find\n" .
       "the repository in my list of repositories.\n" .
-      "You can also give a URL: \"close https://gith.../issues/nn\"\n" .
-      "See also \"$me, help use\" for creating a list of repositories.\n" .
+      "You can also give a URL: \x02close https://gith.../issues/nn\x02\n" .
+      "See also \x02$me, help use\x02 for creating a list of repositories.\n" .
       "Example: close #1"
       if $text =~ /\bclose\b/i;
 
   return
-      "the command \"reopen #nn\" or \"reopen yyy#nn\" or\n" .
-      "\"reopen xxx/yyy#nn\" tells me to reopen GitHub issue\n" .
+      "the command \x02reopen #nn\x02 or \x02reopen yyy#nn\x02 or\n" .
+      "\x02reopen xxx/yyy#nn\x02 tells me to reopen GitHub issue\n" .
       "number nn in repository xxx/yyy. If you omit xxx or xxx/yyy,\n" .
       "I will find the repository in my list of repositories.\n" .
-      "You can also give a URL: \"reopen https://gith.../issues/nn\"\n" .
-      "See also \"$me, help use\" for creating a list of repositories.\n" .
+      "You can also give a URL: \x02reopen https://gith.../issues/nn\x02\n" .
+      "See also \x02$me, help use\x02 for creating a list of repositories.\n" .
       "Example: reopen #1"
       if $text =~ /\breopen\b/i;
 
   return
-      "the command \"$me, bye\" tells me to leave this channel.\n" .
-      "See also \"$me help invite\"."
+      "the command \x02$me, bye\x02 tells me to leave this channel.\n" .
+      "See also \x02$me help invite\x02."
       if $text =~ /\bbye\b/i;
 
   return
-      "the command \"$me, $1\" lists at most 100 most recent open issues.\n" .
-      "It can optionally be followed by \"open\", \"closed\" or \"all\",\n" .
-      "optionally followed by \"issues\" or \"actions\, followed by zero\n" .
-      "or more conditions: \"with labels label1, label2...\" or\n" .
-      "\"for name\" or \"by name\" or \"from repo\". I will list the\n" .
+      "the command \x02$me, $1\x02 lists at most 100 most recent open issues.\n" .
+      "It can optionally be followed by \x02open\x02, \x02closed\x02 or \x02all\x02,\n" .
+      "optionally followed by \x02issues\x02 or \x02actions\, followed by zero\n" .
+      "or more conditions: \x02with labels label1, label2...\x02 or\n" .
+      "\x02for name\x02 or \x02by name\x02 or \x02from repo\x02. I will list the\n" .
       "issues or actions that match those conditions.\n" .
-      "See also \"$me, next\".\n" .
+      "See also \x02$me, next\x02.\n" .
       "Aliases: find, look up, get, search, search for, list.\n" .
       "Example: $me, list closed actions for pchampin from w3c/rdf-star"
       if $text =~ /\b(find|look +up|get|search|search +for|list)\b/i;
 
   return
-      "the command \"$1 #nn: text\" or\n" .
-      "\"$1 yyy#nn: text\" or \"$1 xxx/yyy#nn: text\" tells\n" .
-      "me to add some text to GitHub issue nn in repository xxx/yyy.\n" .
+      "the command \x02$1 #nn: text\x02 or\n" .
+      "\x02$1 yyy#nn: text\x02 or \x02$1 xxx/yyy#nn: text\x02 or\n" .
+      "\x02yyy#nn $1: text\x02 tells me to add some text to GitHub\n" .
+      "issue nn in repository xxx/yyy.\n" .
       "The colon(:) is optional. If you omit xxx or xxx/yyy, I will\n" .
       "find the repository in my list of repositories.\n" .
-      "You can also use a URL: \"$1 https://gith.../issues/nn text\"\n" .
-      "See also \"$me, help use\" for creating a list of repositories.\n" .
+      "You can also use a URL: \x02$1 https://gith.../issues/nn text\x02\n" .
+      "See also \x02$me, help use\x02 for creating a list of repositories.\n" .
       "Aliases: comment, note.\n" .
       "Example: note #71: This is related to #70."
       if $text =~ /\b(comment|note)\b/i;
 
   return
-      "the comment \"$me, $1\" lists the next group of issues\n" .
+      "the comment \x02$me, $1\x02 lists the next group of issues\n" .
       "if there are more than the previous find command could list.\n" .
-      "See also \"$me, find\"."
+      "See also \x02$me, find\x02."
       if $text =~ /\b(next)\b/i;
 
   return
       "I am a bot to look up and create GitHub issues and\n" .
       "action items. I am an instance of " .
       blessed($self) . " " . VERSION . ".\n" .
-      "Try \"$me, help commands\" or\n" .
+      "Try \x02$me, help commands\x02 or\n" .
       "see " . MANUAL;
 }
 
