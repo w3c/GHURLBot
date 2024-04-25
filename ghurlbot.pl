@@ -617,7 +617,9 @@ sub create_action_process($$$$$$$$)
 
   # If the action has a due date, remove it and put it in $date. Or use 1 week.
   $date = new Date::Manip::Date;
-  if ($text =~ /^(.*)(?: *- *| +)due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
+  if ($text =~ /^(.*) *- *due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
+    $text = $1;
+  } elsif ($text =~ /^(.*) +due +(.*?)[. ]*$/i && $date->parse($2) == 0) {
     $text = $1;
   } else {
     $date->parse("next week");	# Default to 1 week
