@@ -1659,12 +1659,12 @@ sub said($$)
   return $self->add_repositories($channel, $1)
       if ($addressed &&
 	$text =~ /^(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ].*?)$/i) ||
-      $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*?)$/i;
+      $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*)$/i;
 
   return $self->remove_repositories($channel, $1)
       if ($addressed &&
-	$text =~ /^(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*?)$/) ||
-      $text =~ /^repo(?:s|sitory|sitories)? *(?:-|-[:：]?) *([^ ].*?)$/i;
+	$text =~ /^(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*)$/) ||
+      $text =~ /^repo(?:s|sitory|sitories)? *-[:：]? *([^ ].*)$/i;
 
   return $self->clear_repositories($channel)
       if $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?)$/i;
@@ -1751,9 +1751,9 @@ sub said($$)
       if $addressed &&
       $text =~ /^(verbosely +)?(?:find|look +up|get|search|search +for|list)(?:( +all)? +(my))?( +full)?(?: +(open|closed|all))?(?: +(issues|actions))?(?:(?: +with)? +labels? +([^ ]+(?: *, *[^ ]+)*)| +by +([^ ]+)| +for +([^ ]+)| +from +(?:repo(?:sitory)? +)?([^ ].*?)| +(with +descriptions?|in +full))*( +verbosely)? *\.? *$/i;
 
-  return $self->find_next_issues($channel)
+  return $self->find_next_issues($channel, $who)
       if $addressed &&
-      $text =~ /^(?:next(?: +(?:find|look +up|get|search|search +for|list))?(?: +(?:issues|actions))?|(?:find|look +up|get|search|search +for|list) +next(?: +(?:issues|actions))?) *\.? *$/i;
+      $text =~ /^(?:(?:next|more)(?: +(?:find|look +up|get|search|search +for|list))?(?: +(?:issues|actions))?|(?:find|look +up|get|search|search +for|list) +(?:next|more)(?: +(?:issues|actions))?) *\.? *$/i;
 
   return $self->maybe_expand_references($text, $channel, $addressed, $who)
       if !$self->is_ignored_nick($channel, $who);
