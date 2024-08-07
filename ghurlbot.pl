@@ -1681,12 +1681,12 @@ sub said($$)
   return $self->add_repositories($channel, $1)
       if ($addressed &&
 	$text =~ /^(?:discussing|discuss|use|using|take +up|taking +up|this +will +be|this +is) +([^ ].*?)$/i) ||
-      $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*?)$/i;
+      $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?) *([^ ].*)$/i;
 
   return $self->remove_repositories($channel, $1)
       if ($addressed &&
-	$text =~ /^(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*?)$/) ||
-      $text =~ /^repo(?:s|sitory|sitories)? *(?:-|-[:：]?) *([^ ].*?)$/i;
+	$text =~ /^(?:forget|drop|remove|don't +use|do +not +use) +([^ ].*)$/) ||
+      $text =~ /^repo(?:s|sitory|sitories)? *-[:：]? *([^ ].*)$/i;
 
   return $self->clear_repositories($channel)
       if $text =~ /^repo(?:s|sitory|sitories)? *(?:[:：]|\+[:：]?)$/i;
