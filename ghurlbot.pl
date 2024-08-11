@@ -5,9 +5,6 @@
 # for how to run it and manual.html for the interaction on IRC.
 #
 #
-# TODO: Allow "repo:...", "repositories:..." (in addition to "gb,
-# use..."). This is the syntax of scribe.perl.
-#
 # TODO: The map-file should contain the IRC network, not just the
 # channel names.
 #
@@ -47,6 +44,9 @@
 # It is possible to change the title, the body, the assignees and the
 # labels: "edit #7: A new title", "edit text #7: Text for the body",
 # "edit due #7: in two weeks", etc.
+#
+# TODO: handle_process_output() should use emote() instead of say()
+# when the output is in response to a /me (emoted) command.
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -616,6 +616,7 @@ sub create_action_process($$$$$$$$)
   } else {
     $date->parse("next week");	# Default to 1 week
   }
+  $text =~ s/,$//;		# Remove any final comma
 
   # When a due date is in the past, adjust the year and print a warning.
   $today = new Date::Manip::Date;
