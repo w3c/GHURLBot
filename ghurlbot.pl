@@ -1607,7 +1607,11 @@ sub find_issues($$$$$$$$$)
   $labels =~ s/ //g if $labels;
   $labels = $labels ? "$labels,action" : "action" if lc $type eq 'actions';
   $max = $full ? $self->{maxlines}->{$channel} // DEFAULT_MAXLINES : MAX;
-  $q = "per_page=$max&state=$state";
+  $q = "&per_page=$max";
+  if ($state =~ /^open$/i) {$q .= "&state=open"}
+  elsif ($state =~ /^closed$/i) {$q .= "&state=closed"}
+  elsif ($state =~ /^all$/i) {$q .= "&state=all"}
+  else {return "Sorry, you found a bug! (Unhandled \$state in find_issues.)"}
   $creator = $who if $creator && $creator =~ /^m[ey]$/i;
   $assignee = $who if $assignee && $assignee =~ /^m[ey]$/i;
   $q .= "&assignee=" . esc($self->name_to_login($assignee)) if $assignee;
@@ -2079,7 +2083,7 @@ sub esc($)
   my ($octets);
 
   $octets = encode("UTF-8", $s);
-  $octets =~ s/([^A-Za-z0-9._~!$'()*,=:@\/-])/"%".sprintf("%02x",ord($1))/eg;
+  $octets =~ s/([^A-Za-z0-9._~!\$'()*,=:@\/-])/"%".sprintf("%02x",ord($1))/eg;
   return decode("UTF-8", $octets);
 }
 
