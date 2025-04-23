@@ -51,7 +51,7 @@
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
-# Copyright © 2022-2023 World Wide Web Consortium, (Massachusetts Institute
+# Copyright © 2022-2025 World Wide Web Consortium, (Massachusetts Institute
 # of Technology, European Research Consortium for Informatics and
 # Mathematics, Keio University, Beihang). All Rights Reserved. This
 # work is distributed under the W3C® Software License
@@ -1320,7 +1320,7 @@ sub maybe_expand_references($$$$$)
 
     if ($ref !~ /^@/		# It's a reference to an issue.
       && ($addressed || ($do_issues && $linenr > $previous + $delay))) {
-      if (! defined $issue) {
+      if (! defined $repository) {
 	$self->log("Channel $channel, cannot infer a repository for $ref");
 	$response .= "I don't know which repository to use for $ref\n"
 	    if $addressed;
