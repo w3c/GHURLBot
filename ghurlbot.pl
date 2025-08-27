@@ -1173,10 +1173,20 @@ sub account_info($$)
 }
 
 
-# get_issue_summary_process -- try to retrieve info about an issue/pull request
-sub get_issue_summary_process($$$$$$)
+# format_link -- return a link or a substitution command with a link
+sub format_link($$$$$)
 {
-  my ($body, $self, $channel, $repository, $issue, $who) = @_;
+  my ($self, $format, $match, $url, $anchor) = @_;
+
+  return "s|$match|$url -> $anchor" if $format eq 'substitution';
+  return "$url -> $anchor";
+}
+
+
+# get_issue_summary_process -- try to retrieve info about an issue/pull request
+sub get_issue_summary_process($$$$$$$$)
+{
+  my ($body, $self, $channel, $repository, $issue, $who, $format, $match) = @_;
   my ($owner, $repo, $res, $ref, $comment, $d1, $d2, $q);
 
   # This is not a method, but a function that is called by forkit() to
@@ -1189,13 +1199,17 @@ sub get_issue_summary_process($$$$$$)
 
   if (!defined $self->{ua}) {
     print "say $repository/issues/$issue -> #$issue\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/issues/$issue",$match),
+	"\n";
     print STDERR "Channel $channel, info $repository#$issue\n";
     return;
   }
 
   ($owner, $repo) =
       $repository =~ /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)$/i or
-      print "say $repository/issues/$issue -> #$issue\n" and
+      print "say ", $self->format_link($format, $match,
+	"$repository/issues/$issue", $match), "\n" and
       print STDERR "Channel $channel, info $repository/issues/$issue\n" and
       return;
 
@@ -1226,7 +1240,9 @@ sub get_issue_summary_process($$$$$$)
   # TODO: What are the possible status codes in reply to a GraphQL call?
   if ($res->code != 200) {
     print STDERR "  ", $res->decoded_content, "\n";
-    print "say $repository/issues/$issue -> #$issue\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/issues/$issue",$match),
+	"\n";
     return;
   }
 
@@ -1236,38 +1252,46 @@ sub get_issue_summary_process($$$$$$)
   if (defined $d1->{discussion}) {
     # It's a discussion.
     $d2 = $d1->{discussion};
-    print "say $repository/discussions/$issue -> ",
-	($d2->{closed} ? 'CLOSED ' : ''),
-	"Discussion $issue $d2->{title} (by $d2->{author}->{login})",
-	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/discussions/$issue",
+	  ($d2->{closed} ? 'CLOSED ' : '') .
+	  "Discussion $issue $d2->{title} (by $d2->{author}->{login})" .
+	  join("", map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}))),
+	"\n";
 
 
   } elsif (defined $d1->{pullRequest}) {
     # It's a pull request.
     $d2 = $d1->{pullRequest};
-    print "say $repository/pull/$issue -> ",
-	($d2->{state} ne 'OPEN' ? "$d2->{state} " : ''),
-	"Pull Request $issue $d2->{title} (by $d2->{author}->{login})",
-	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/pull/$issue",
+	  ($d2->{state} ne 'OPEN' ? "$d2->{state} " : '') .
+	  "Pull Request $issue $d2->{title} (by $d2->{author}->{login})" .
+	  join("", map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}))),
+	"\n";
 
   } elsif (defined $d1->{issue} &&
     grep($_->{node}->{name} eq 'action', @{$d1->{issue}->{labels}->{edges}})) {
     # It's an issue that is also an action.
     $d2 = $d1->{issue};
     $comment = $self->look_for_due_date($d2->{bodyText} // '');
-    print "say $repository/issues/$issue -> ",
-	($d2->{state} eq 'CLOSED' ? 'CLOSED ' : ''),
-	"Action $issue $d2->{title} (on ",
-	join(', ', map($_->{node}->{login}, @{$d2->{assignees}->{edges}})),
-	")$comment\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/issues/$issue",
+	  ($d2->{state} eq 'CLOSED' ? 'CLOSED ' : '') .
+	  "Action $issue $d2->{title} (on " .
+	  join(', ', map($_->{node}->{login}, @{$d2->{assignees}->{edges}})) .
+	  ")$comment"),
+	"\n";
 
   } elsif (defined $d1->{issue}) {
     # It's an issue, but not an action.
     $d2 = $d1->{issue};
-    print "say $repository/issues/$issue -> ",
-	($d2->{state} eq 'CLOSED' ? 'CLOSED ' : ''),
-	"Issue $issue $d2->{title} (by $d2->{author}->{login})",
-	map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}), "\n";
+    print "say ",
+	$self->format_link($format, $match, "$repository/issues/$issue",
+	  ($d2->{state} eq 'CLOSED' ? 'CLOSED ' : '') .
+	  "Issue $issue $d2->{title} (by $d2->{author}->{login})" .
+	  join("", map(" [$_->{node}->{name}]", @{$d2->{labels}->{edges}}))),
+	"\n";
 
   } else {
     # No issue, pull request or discussion with this number found.
@@ -1284,7 +1308,7 @@ sub maybe_expand_references($$$$$)
   my ($self, $text, $channel, $addressed, $who) = @_;
   my ($linenr, $delay, $do_issues, $do_names, $response, $repository, $nrefs);
   my ($ref, $issue, $name, $need_expansion);
-  my ($do_lookups);
+  my ($do_lookups, $format, $match);
 
   $linenr = $self->{linenumber}->{$channel};		    # Current line#
   $delay = $self->{delays}->{$channel} // DEFAULT_DELAY;
@@ -1293,26 +1317,33 @@ sub maybe_expand_references($$$$$)
   $do_lookups = defined $self->{ua};
   $response = '';
 
+  # Determine whether to output normal links ("issue-URL ->
+  # description") or substitutions ("s|issue-reference|issue-URL ->
+  # description"). The latter if the text line starts with "topic:" or
+  # "subtopic:".
+  $format = ($text =~ /^ *(sub)?topic *[:：]/ni) ? "substitution" : "normal";
+
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
 
   while ($text =~
-    m{(?:(?:^|[^`])\K(`+)[^`](?:.*?[^`])?\g{-1}(?=[^`]|$)
-      |\b(https://github\.com/([a-z0-9._-]+/[a-z0-9._-]+))/(?:issues|pull|discussions)/([0-9]+)
-      |(?:^|[^a-z0-9._@\#/:-])\K((?:[a-z0-9._-]+(?:/[a-z0-9._-]+)?)?\#[0-9]+)
-      |(?:^|[^a-z0-9._@\#/:-])\K(@([\w-]+))
-      )(?=\W|$)}xig) {
+    m{((^|[^`])\K(?<backticks>`+)[^`](.*?[^`])?\g{backticks}(?=[^`]|$)
+      |\b(?<base>https://github\.com/(?<repo>[a-z0-9._-]+/[a-z0-9._-]+))/(issues|pull|discussions)/(?<issue>[0-9]+)
+      |(^|[^a-z0-9._@\#/:-])\K(?<ref>([a-z0-9._-]+(/[a-z0-9._-]+)?)?\#[0-9]+)
+      |(^|[^a-z0-9._@\#/:-])\K(?<nameref>@(?<name>[\w-]+))
+      )(?=\W|$)}xign) {
 
-    if ($1) {			# `...` (literal text, as in MarkDown)
+    $match = $&;
+    if ($+{backticks}) {	# `...` (literal text, as in MarkDown)
       next;
-    } elsif ($6) {		# @name
-      ($ref, $name) = ($6, $7);
-    } elsif ($2) {		# Full URL of an issue
+    } elsif ($+{nameref}) {	# @name
+      ($ref, $name) = ($+{nameref}, $+{name});
+    } elsif ($+{base}) {	# Full URL of an issue
       $need_expansion = 0;	# Full URL already given
-      ($repository, $issue, $ref) = ($2, $4, "$3#$4");
+      ($repository, $issue, $ref) = ($+{base}, $+{issue}, "$+{repo}#$+{issue}");
     } else {			# owner/repo#n, repo#n, or #n
       $need_expansion = 1;	# Full URL needs to be printed
-      $ref = $5;
+      $ref = $+{ref};
       ($repository, $issue) = $self->find_repository_for_issue($channel, $ref);
     }
 
@@ -1330,10 +1361,12 @@ sub maybe_expand_references($$$$$)
       if ($do_lookups) {
 	$self->forkit(run => \&get_issue_summary_process,
 	  handler => "handle_process_output", channel => $channel,
-	  arguments => [$self, $channel, $repository, $issue, $who]);
+	  arguments => [$self, $channel, $repository, $issue, $who,
+	    $format, $match]);
       } elsif ($need_expansion) {
 	# We don't have a UA, and the issue was not already a full URL.
-	$response .= "$repository/issues/$issue -> #$issue\n";
+	$response .= $self->format_link($format, $match,
+	  "$repository/issues/$issue", "$match") . "\n";
 	$self->log("Channel $channel, info $repository#$issue");
       }
       $self->{history}->{$channel}->{$ref} = $linenr;
@@ -1341,7 +1374,8 @@ sub maybe_expand_references($$$$$)
     } elsif ($ref =~ /^@/		# It's a reference to a GitHub user name
       && ($addressed || ($do_names && $linenr > $previous + $delay))) {
       $self->log("Channel $channel, name https://github.com/$name");
-      $response .= "https://github.com/$name -> \@$name\n";
+      $response .= $self->format_link($format, $match,
+	"https://github.com/$name", $match) . "\n";
       $self->{history}->{$channel}->{$ref} = $linenr;
 
     } else {
@@ -1580,7 +1614,8 @@ sub find_issues_process($$$$)
     print "say Found $type in $owner_repo: $s\n";
   } else {
     get_issue_summary_process($body, $self, $channel,
-      "https://github.com/$owner_repo", $_->{number}, $who) foreach @$ref;
+      "https://github.com/$owner_repo", $_->{number}, $who, 'normal', '')
+	foreach @$ref;
   }
 }
 
@@ -1760,7 +1795,7 @@ sub said($$)
   return $self->create_action($channel, $1, $2, $who)
       if ($addressed || $do_issues) &&
       ($text =~ /^action +([^:：]+?) *[:：] *(.*)$/i ||
-	$text =~ /^action *[:：] *(.*?)(?: +to | *[:：])(.*)$/i) &&
+	$text =~ /^action *[:：] *(.*?)(?: +to +| *[:：])(.*)$/i) &&
       !$self->is_ignored_nick($channel, $who);
 
   return $self->account_info($channel)
