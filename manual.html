@@ -236,6 +236,29 @@
   <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
 &lt;gb&gt; https://github.com/w3c/scribe2/issues/3 -> Issue 3 [closed] Errors replacing URLs (nigelmegitt)</pre>
 
+  <h2 id=topic>Issues in topic lines</h2>
+
+  <p>Lines on IRC that start with <code>topic:</code>,
+    <code>subtopic:</code> or <code>agendum</code> are normally meant
+    for scribe.perl to tell it to create a table of contents in the
+    minutes generated from the IRC log.
+    (See <a href="https://w3c.github.io/scribe2/scribedoc.html#topic">‘general
+    commands’ in the scribe.perl manual</a>
+    and <a href="https://www.w3.org/guide/meetings/zakim.html#nextitem"
+    >‘Move to the next agenda item’</a> in the Zakim manual.) When gb
+    sees a reference to an issue in such a line, it expands the issue
+    a bit differently:
+
+  <pre class=command>&lt;joe&gt; topic: about w3c/ghurlbot#15
+&lt;gb&gt; s|w3c/ghurlbot#15|-&gt; Issue 15 help make better topics (by pchampin) https://github.com/w3c/ghurlbot/issues/15</pre>
+
+  <p>This is in fact an instruction for scribe.perl to replace the
+    text <code>w3c/ghurlbot#15</code> with a
+    link: <a href="https://github.com/w3c/ghurlbot/issues/15" >Issue
+    15 help make better topics (by pchampin)</a>. It ensures that the
+    table of commands that scribe.perl later contains that link
+    instead of the issue reference.
+
   <h2 id=url>Look up an issue by its URL</h2>
 
   <p>When gb sees a URL that looks like the URL of an issue, pull
@@ -243,7 +266,7 @@
     summary from GitHub. E.g.:
 
     <pre class=command>&lt;joe&gt; topic: https://github.com/w3c/scribe2/issues/15
-&lt;gb&gt; https://github.com/w3c/scribe2/issues/15 -&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston)</pre>
+&lt;gb&gt; s|https://github.com/w3c/scribe2/issues/15|-&gt; CLOSED Issue 15 Feature request: syntax for verbatim lines of code (by dbooth-boston) https://github.com/w3c/scribe2/issues/15</pre>
 
   <h2 id=name>IRC command to link to a user name</h2>
 
