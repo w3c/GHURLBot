@@ -48,6 +48,10 @@
 # TODO: handle_process_output() should use emote() instead of say()
 # when the output is in response to a /me (emoted) command.
 #
+# TODO: In addition to topic, subtopic and agendum, gb should also
+# recognize lines after a line with dashes as a topic line (see
+# dashTopics in scribe.perl).
+#
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
 #
@@ -87,7 +91,7 @@ use POE;			# For OBJECT, ARG0 and ARG1
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant HOME => 'https://w3c.github.io/GHURLBot';
-use constant VERSION => '0.5';
+use constant VERSION => '0.6';
 use constant DEFAULT_DELAY => 15;
 use constant DEFAULT_MAXLINES => 10; # Nr. of issues to list in full. ( <= 100)
 my $githubissue =
@@ -1319,9 +1323,10 @@ sub maybe_expand_references($$$$$)
 
   # Determine whether to output normal links ("issue-URL ->
   # description") or substitutions ("s|issue-reference|issue-URL ->
-  # description"). The latter if the text line starts with "topic:" or
-  # "subtopic:".
-  $format = ($text =~ /^ *(sub)?topic *[:：]/ni) ? "substitution" : "normal";
+  # description"). The latter if the text line starts with "topic:",
+  # "subtopic:" or "agendum" (as written by Zakim).
+  $format = ($text =~ /^ *(sub)?topic *[:：]|^agendum \d+ -- .* -- taken/ni) ?
+      "substitution" : "normal";
 
   # Look for #number, prefix#number and @name.
   $nrefs = 0;
