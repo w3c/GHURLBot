@@ -1182,7 +1182,23 @@ sub format_link($$$$$)
 {
   my ($self, $format, $match, $url, $anchor) = @_;
 
-  return "s|$match|-> $anchor $url" if $format eq 'substitution';
+  # Return a link if $format is 'normal'
+  return "$url -> $anchor" if $format ne 'normal';
+
+  # $format is 'substitution'. But print a link if there is a "|" in the text.
+  return "$url -> $anchor" if $match =~ /\|/ || $anchor =~ /\|/ || $url =~ /\|/;
+
+  # Three is no "|". Now check if we can use an Ivan link ("-> anchor
+  # url"), a double or single quoted Ralph link ("-> url 'anchor'") or
+  # a Markdown link ("[anchor]{url)"). There may be multiple links in
+  # the line that results from the substitution, so we need one of the
+  # syntaxes that delimit the anchor text.
+  return "s|$match|-> $anchor $url" if $anchor !~ /(^|\s)[a-z]+:/in;
+  return "s|$match|-> $url \"$anchor\"" if $anchor !~ /"/;
+  return "s|$match|-> $url '$anchor'" if $anchor !~ /'/;
+  return "s|$match|[$anchor]($url)" if $anchor !~ /\]/ && $url !~ /\)/;
+
+  # Cannot use those types of link, so don't output a s|| at all.
   return "$url -> $anchor";
 }
 
