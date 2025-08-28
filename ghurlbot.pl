@@ -200,6 +200,8 @@ sub read_mapfile($)
   my $self = shift;
   my ($channel, $fh, $mode);
 
+  return if ! $self->{mapfile}; # Nothing to read if file name not set or empty
+
   # If the file exists, open it for reading and writing, because write
   # mode is needed to set a lock on it. Otherwise create it.
   $mode = -e $self->{mapfile} ? "+<" : ">";
@@ -266,6 +268,8 @@ sub read_mapfile($)
 sub write_mapfile($)
 {
   my $self = shift;
+
+  return if ! $self->{mapfile}; # Nothing to write if file name not set or empty
 
   eval {
     my ($fh, $tempname) = tempfile($self->{mapfile}."XXXX", UNLINK => 1);
@@ -1183,7 +1187,7 @@ sub format_link($$$$$)
   my ($self, $format, $match, $url, $anchor) = @_;
 
   # Return a link if $format is 'normal'
-  return "$url -> $anchor" if $format ne 'normal';
+  return "$url -> $anchor" if $format eq 'normal';
 
   # $format is 'substitution'. But print a link if there is a "|" in the text.
   return "$url -> $anchor" if $match =~ /\|/ || $anchor =~ /\|/ || $url =~ /\|/;
@@ -2301,8 +2305,9 @@ IRC). Default is "GHURLBot 0.1 see https://w3c.github.io/GHURLBot".
 =item B<-m> I<map-file>
 
 B<ghurlbot> stores its status in a file and restores it from this
-file when it starts Default is "ghurlbot.map" in the current
-directory.
+file when it starts. Default is "ghurlbot.map" in the current
+directory. Set this to an empty string if you do not want B<ghurlbot>
+to store its status.
 
 =item B<-r> I<rejoin-file>
 
