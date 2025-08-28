@@ -1182,7 +1182,7 @@ sub format_link($$$$$)
 {
   my ($self, $format, $match, $url, $anchor) = @_;
 
-  return "s|$match|$url -> $anchor" if $format eq 'substitution';
+  return "s|$match|-> $anchor $url" if $format eq 'substitution';
   return "$url -> $anchor";
 }
 
