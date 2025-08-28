@@ -256,8 +256,12 @@
     text <code>w3c/ghurlbot#15</code> with a
     link: <a href="https://github.com/w3c/ghurlbot/issues/15" >Issue
     15 help make better topics (by pchampin)</a>. It ensures that the
-    table of commands that scribe.perl later contains that link
-    instead of the issue reference.
+    table of contents that scribe.perl later generates contains that
+    link instead of the issue reference.
+
+   <p>Gb may not be able to output a substition. The most likely cause
+     is that there is a ‘|’ in the issue title. In that case gb just
+     prints the link without the <code>s||</code>.
 
   <h2 id=url>Look up an issue by its URL</h2>
 
