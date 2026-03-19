@@ -468,6 +468,11 @@ sub irc_received_state
   $mess->{who} = $self->nick_strip($nick);
   $mess->{raw_nick} = $nick;
 
+  # Store the message and strip off whitespace before and after.
+  $mess->{body} = $body;
+  $mess->{body} =~ s/^\s+//;
+  $mess->{body} =~ s/\s+$//;
+
   # Right, get the list of places this message was sent to and work
   # out the first one that we're either a member of or is our nick.
   # The IRC protocol allows messages to be sent to multiple targets,
@@ -480,22 +485,14 @@ sub irc_received_state
     $mess->{address} = "msg";
   } else {
     $mess->{channel} = $channel;
-  }
-
-  $mess->{body} = $body;
-
-  # Okay, work out if we're addressed or not
-
-  for my $h (($self->nick, $self->alt_nicks)) {
-    if ($mess->{body} =~ s/^(\Q$h\E)\s*,\s*//i) {
-      $mess->{address} //= $1; # If not already set to "msg"
-      last;
+    # Work out if we're addressed or not, and strip off our name if so:
+    for my $h (($self->nick, $self->alt_nicks)) {
+      if ($mess->{body} =~ s/^(\Q$h\E)\s*,\s*//i) {
+	$mess->{address} = $1;
+	last;
+      }
     }
   }
-
-  # Strip off whitespace before and after the message
-  $mess->{body} =~ s/^\s+//;
-  $mess->{body} =~ s/\s+$//;
 
   # Check if someone was asking for help
   if ($mess->{address} && $mess->{body} =~ /^help\b/i) {
