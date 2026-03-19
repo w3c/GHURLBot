@@ -236,7 +236,7 @@
   <pre class=command>&lt;joe&gt; Is scribe2#3 the same issue?
 &lt;gb&gt; https://github.com/w3c/scribe2/issues/3 -> Issue 3 [closed] Errors replacing URLs (nigelmegitt)</pre>
 
-  <h2 id=topic>Issues in topic lines</h2>
+  <h2 id=topic>Issues in topic lines and ‘q’ lines</h2>
 
   <p>Lines on IRC that start with <code>topic:</code>,
     <code>subtopic:</code> or <code>agendum</code> are normally meant
@@ -258,6 +258,17 @@
     15 help make better topics (by pchampin)</a>. It ensures that the
     table of contents that scribe.perl later generates contains that
     link instead of the issue reference.
+
+  <p>Gb also responds with such a substitution if an issue occurs in a
+    line that starts with <code>q+</code>, <code>qq+</code> or some
+    variant
+    (see <a href="https://www.w3.org/guide/meetings/zakim.html#speakerqueue"
+    >‘Floor control’</a> in Zakim's manual). If scribe.perl is used to
+    generate minutes from the IRC log, it usually skips such q+ lines
+    and it would be strange if there were text from gb in the minutes
+    about an issue that is not mentioned. On the other hand, if
+    scribe.perl does include the q+ line, this substitution ensures
+    that that line contains a link to the issue.
 
    <p>Gb may not be able to output a substition. The most likely cause
      is that there is a ‘|’ in the issue title. In that case gb just
@@ -765,8 +776,9 @@ Due: 2023-11-01 (Wednesday 1 November)</pre>
 
   <p>Gb is written in Perl.
     The <a href="https://github.com/w3c/GHURLBot" >source</a> is on
-    GitHub.
-
+    GitHub, where you can also
+    raise <a href="https://github.com/w3c/GHURLBot/issues"
+    >issues</a>.
   <hr>
 
   <address>Created by Bert Bos <a href="mailto:bert@w3.org"
