@@ -45,12 +45,16 @@
 # labels: "edit #7: A new title", "edit text #7: Text for the body",
 # "edit due #7: in two weeks", etc.
 #
-# TODO: handle_process_output() should use emote() instead of say()
-# when the output is in response to a /me (emoted) command.
-#
 # TODO: In addition to topic, subtopic and agendum, gb should also
 # recognize lines after a line with dashes as a topic line (see
 # dashTopics in scribe.perl).
+#
+# TODO: When opening an issue or adding a comment to an issue, add a
+# pointer to the location in the (future) minutes where this issue is
+# discussed. Check first if RRSAgent is present and assume that the
+# minutes will indeed be generated. This requires a modification in
+# scribe.perl to add a predictable ID to the minutes, e.g., an ID
+# formed from the URL of the issue or issue comment.
 #
 # Created: 2022-01-11
 # Author: Bert Bos <bert@w3.org>
@@ -91,7 +95,7 @@ use POE;			# For OBJECT, ARG0 and ARG1
 
 use constant MANUAL => 'https://w3c.github.io/GHURLBot/manual.html';
 use constant HOME => 'https://w3c.github.io/GHURLBot';
-use constant VERSION => '0.6';
+use constant VERSION => '0.7';
 use constant DEFAULT_DELAY => 15;
 use constant DEFAULT_MAXLINES => 10; # Nr. of issues to list in full. ( <= 100)
 my $githubissue =
@@ -544,25 +548,25 @@ sub check_and_update_rate($$)
 # handle_process_output -- handler for text from a forked process, calls say()
 sub handle_process_output($$$)
 {
-  my ($self, $body, $wheel_id) = @_[OBJECT, ARG0, ARG1];
+  my ($self, $line, $wheel_id) = @_[OBJECT, ARG0, ARG1];
 
   # This is not a method, but a POE event handler. It is called when a
   # background process prints a line to STDOUT. $body has the contents
   # of that line.
 
-  # If the text starts with "say", just write it to IRC (minus the
-  # "say"). If it starts with "emote", emote it ("/me"). No other
-  # keywords are currently defined.
-  $body = decode('UTF-8', $body);
-  chomp $body;		      # remove newline necessary to move data;
-  if (($body =~ s/^(say|emote) //)) {
-    my $respond = $1;
+  # If the line starts with "say", use the say() method to write the
+  # rest of the line to IRC. If it starts with "emote", use the
+  # emote() method instead.
+  $line = decode('UTF-8', $line);
+  chomp $line;		      # remove newline necessary to move data;
+  if ($line =~ /^(say|emote) (.*)/) {
+    my ($respond, $body) = ($1, $2);
     # Pick up the default arguments we squirreled away earlier.
     my $args = $self->{forks}{$wheel_id}{args};
     $args->{body} = $body;
     $self->$respond($args);
   } else {
-    die "Bug: unrecognized output from a background process(): $body\n";
+    die "Bug: unrecognized output from a background process(): $line\n";
   }
   return;
 }
@@ -1353,8 +1357,8 @@ sub maybe_expand_references($$$$$$)
   # Determine whether to output normal links ("issue-URL ->
   # description") or substitutions ("s|issue-reference|issue-URL ->
   # description"). The latter if the text line starts with "topic:",
-  # "subtopic:" or "agendum" (as written by Zakim).
-  $format = ($text =~ /^ *(sub)?topic *[:：]|^agendum \d+ -- .* -- taken/ni) ?
+  # "subtopic:", "agendum" (as written by Zakim), or a variation of "q+".
+  $format = ($text =~ /^(sub)?topic *[:：]|^agendum \d+ -- .* -- taken|^q(?:ueue|q)? *[-+=?]/ni) ?
       "substitution" : "normal";
 
   # Look for #number, prefix#number and @name.
