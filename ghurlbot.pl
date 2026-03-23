@@ -444,38 +444,42 @@ sub clear_repositories($$)
 }
 
 
-# find_matching_repository -- return the repository that matches $prefix
+# find_matching_repository -- return the repository that matches $name
 sub find_matching_repository($$$)
 {
-  my ($self, $channel, $prefix) = @_;
+  my ($self, $channel, $name) = @_;
   my ($repos, @matchingrepos);
 
   $repos = $self->{repos}->{$channel} // [];
 
-  # First find all repos in our list with the exact name $prefix
+  # First find all repos in our list with the exact name $name
   # (with or without an owner part). If there are none, find all
-  # repos whose name start with $prefix. E.g., if prefix is "i",
+  # repos whose name start with $name. E.g., if $name is "i",
   # it will match repos that have an "i" at the start of the repo
   # name, such as "https://github.com/w3c/i18n" and
   # "https://github.com/foo/ima"; if prefix is "w3c/i" it will
   # match a repo that has "w3c" as owner and a repo name that
   # starts with "i", i.e., it will only match the first of those
-  # two; and likewise if prefix is "i18". If prefix is empty, all
-  # repos match. (It is important to start with an exact match,
+  # two; and likewise if prefix is "i18". If $name is empty, all
+  # repos match. If no repo has $name as prefix, look for repos whose
+  # names end in $name. E.g., if there are repos "w3c/json-ld-syntax"
+  # and "w3c/json-ld-api", a $name of "api" will match the latter. (It
+  # is important to start with an exact match,
   # otherwise if there two repos "rdf-star" and
   # "rdf-star-wg-charter", you can never get to the former,
   # because it is a prefix of the latter.)
-  @matchingrepos = grep $_ =~ /\/\Q$prefix\E$/i, @$repos or
-      @matchingrepos = grep $_ =~ /\/\Q$prefix\E[^\/]*$/i, @$repos;
+  @matchingrepos = grep $_ =~ /\/\Q$name\E$/i, @$repos or
+      @matchingrepos = grep $_ =~ /\/\Q$name\E[^\/]*$/i, @$repos or
+      @matchingrepos = grep $_ =~ /\Q$name\E$/i, @$repos;
 
-  # Found one or more repos whose name starts with $prefix:
+  # Found one or more repos whose names match $name:
   return $matchingrepos[0] if @matchingrepos;
 
-  # Did not find a match, but $prefix has a "/", maybe it is a repo name:
-  return "https://github.com/$prefix" if $prefix =~ /\//;
+  # Did not find a match, but $name has a "/", maybe it is a repo name:
+  return "https://github.com/$name" if $name =~ /\//;
 
   # Use the owner part of the most recent repo:
-  return $repos->[0] =~ s/[^\/]*$/$prefix/r if $prefix && scalar @$repos;
+  return $repos->[0] =~ s/[^\/]*$/$name/r if $name && scalar @$repos;
 
   # No recent repo, so we can't guess the owner:
   return undef;
