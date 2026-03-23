@@ -1354,11 +1354,15 @@ sub maybe_expand_references($$$$$$)
   $do_lookups = defined $self->{ua};
   $response = '';
 
+  # Force emoted ("/me") answers to certain lines that do not
+  # normally appear in meeting minutes, such as "q+" lines.
+  $respond = 'emote' if $text =~ /^q(ueue|q)? *[-+=?]/ni;
+
   # Determine whether to output normal links ("issue-URL ->
   # description") or substitutions ("s|issue-reference|issue-URL ->
   # description"). The latter if the text line starts with "topic:",
   # "subtopic:", "agendum" (as written by Zakim), or a variation of "q+".
-  $format = ($text =~ /^(sub)?topic *[:：]|^agendum \d+ -- .* -- taken|^q(?:ueue|q)? *[-+=?]/ni) ?
+  $format = ($text =~ /^(sub)?topic *[:：]|^agendum \d+ -- .* -- taken/ni) ?
       "substitution" : "normal";
 
   # Look for #number, prefix#number and @name.
